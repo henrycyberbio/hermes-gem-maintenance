@@ -1,0 +1,185 @@
+[
+  {
+    "id": "monk2016",
+    "type": "article-journal",
+    "author": [
+      {
+        "family": "Monk",
+        "given": "Jonathan M"
+      },
+      {
+        "family": "Koza",
+        "given": "Anna"
+      },
+      {
+        "family": "Campodonico",
+        "given": "Miguel A"
+      },
+      {
+        "family": "Machado",
+        "given": "Daniel"
+      },
+      {
+        "family": "Seoane",
+        "given": "Jose Miguel"
+      },
+      {
+        "family": "Palsson",
+        "given": "Bernhard O"
+      },
+      {
+        "family": "Herrgard",
+        "given": "Markus J"
+      },
+      {
+        "family": "Feist",
+        "given": "Adam M"
+      }
+    ],
+    "title": "Multi-omics Quantification of Species Variation of Escherichia coli Links Molecular Features with Strain Phenotypes",
+    "container-title": "Cell Systems",
+    "container-title-short": "Cell Syst.",
+    "volume": "3",
+    "issue": "3",
+    "page": "238-251.e12",
+    "issued": {
+      "date-parts": [
+        [
+          2016
+        ]
+      ]
+    },
+    "DOI": "10.1016/j.cels.2016.08.013",
+    "PMID": "27667363",
+    "note": "Source publication for the iEC1372_W3110 reconstruction used as the chassis model."
+  },
+  {
+    "id": "king2016",
+    "type": "article-journal",
+    "author": [
+      {
+        "family": "King",
+        "given": "Zachary A"
+      },
+      {
+        "family": "Lu",
+        "given": "Justin"
+      },
+      {
+        "family": "Dräger",
+        "given": "Andreas"
+      },
+      {
+        "family": "Miller",
+        "given": "Philip"
+      },
+      {
+        "family": "Federowicz",
+        "given": "Stephen"
+      },
+      {
+        "family": "Lerman",
+        "given": "Joshua A"
+      },
+      {
+        "family": "Ebrahim",
+        "given": "Ali"
+      },
+      {
+        "family": "Palsson",
+        "given": "Bernhard O"
+      },
+      {
+        "family": "Lewis",
+        "given": "Nathan E"
+      }
+    ],
+    "title": "BiGG Models: A platform for integrating, standardizing and sharing genome-scale models",
+    "container-title": "Nucleic Acids Research",
+    "container-title-short": "Nucleic Acids Res.",
+    "volume": "44",
+    "issue": "D1",
+    "page": "D515-D522",
+    "issued": {
+      "date-parts": [
+        [
+          2016
+        ]
+      ]
+    },
+    "DOI": "10.1093/nar/gkv1049",
+    "PMID": "26476456",
+    "note": "Distribution platform supplying the model file and the universal reaction identifiers."
+  },
+  {
+    "id": "bogorad2013",
+    "type": "article-journal",
+    "author": [
+      {
+        "family": "Bogorad",
+        "given": "Igor W"
+      },
+      {
+        "family": "Lin",
+        "given": "Tzu-Shyang"
+      },
+      {
+        "family": "Liao",
+        "given": "James C"
+      }
+    ],
+    "title": "Synthetic non-oxidative glycolysis enables complete carbon conservation",
+    "container-title": "Nature",
+    "container-title-short": "Nature",
+    "volume": "502",
+    "issue": "7473",
+    "page": "693-697",
+    "issued": {
+      "date-parts": [
+        [
+          2013
+        ]
+      ]
+    },
+    "DOI": "10.1038/nature12575",
+    "PMID": "24077099",
+    "note": "Scientific basis for introducing a heterologous phosphoketolase into E. coli."
+  },
+  {
+    "id": "ebrahim2013",
+    "type": "article-journal",
+    "author": [
+      {
+        "family": "Ebrahim",
+        "given": "Ali"
+      },
+      {
+        "family": "Lerman",
+        "given": "Joshua A"
+      },
+      {
+        "family": "Palsson",
+        "given": "Bernhard O"
+      },
+      {
+        "family": "Hyduke",
+        "given": "Daniel R"
+      }
+    ],
+    "title": "COBRApy: COnstraints-Based Reconstruction and Analysis for Python",
+    "container-title": "BMC Systems Biology",
+    "container-title-short": "BMC Syst. Biol.",
+    "volume": "7",
+    "page": "74",
+    "issued": {
+      "date-parts": [
+        [
+          2013
+        ]
+      ]
+    },
+    "DOI": "10.1186/1752-0509-7-74",
+    "PMID": "23927696",
+    "note": "Modelling library used to read, modify and validate the model."
+  }
+]

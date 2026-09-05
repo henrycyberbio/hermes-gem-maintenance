@@ -1,0 +1,25 @@
+[project]
+name = "hermes-gem-maintenance"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "cobra>=0.32,<0.33",
+    "fire>=0.7,<0.8",
+    "memote==0.17.0",
+]
+
+[project.scripts]
+hermes-gem-maintenance = "hermes_gem_maintenance:main"
+
+[dependency-groups]
+dev = [
+    "citeproc-py>=0.11.1",
+    "pytest>=8.0",
+]
+
+
+[build-system]
+requires = ["uv_build>=0.12.9,<0.13.0"]
+build-backend = "uv_build"
