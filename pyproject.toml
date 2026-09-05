@@ -1,7 +1,7 @@
 [project]
 name = "hermes-gem-maintenance"
 version = "0.1.0"
-description = "Add your description here"
+description = "Agent-driven maintenance of genome-scale metabolic models"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -23,3 +23,17 @@ dev = [
 [build-system]
 requires = ["uv_build>=0.12.9,<0.13.0"]
 build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+# Import scripts/ as a package root so tests can exercise the walkthrough directly.
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "I", "E", "W", "N", "UP", "ANN", "ASYNC", "FBT", "B", "C4", "DTZ", "FA", "LOG",
+    "T20", "PT", "RET", "SIM", "TID", "TC", "PTH", "ERA", "TRY", "FAST", "PERF", "FURB",
+]
