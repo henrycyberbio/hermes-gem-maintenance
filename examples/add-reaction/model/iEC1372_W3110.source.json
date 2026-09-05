@@ -1,0 +1,28 @@
+{
+  "model_id": "iEC1372_W3110",
+  "artifact": {
+    "path": "examples/add-reaction/model/iEC1372_W3110.xml",
+    "format": "SBML",
+    "byte_count": 10825362,
+    "sha256": "109290d2e2407a94f8088f9ef9fd40f6db6b73b1cf36574d6d987527ece8d9b7"
+  },
+  "source": {
+    "publisher": "BiGG Models / Systems Biology Research Group, UC San Diego",
+    "model_record_url": "http://bigg.ucsd.edu/models/iEC1372_W3110",
+    "direct_download_url": "http://bigg.ucsd.edu/static/models/iEC1372_W3110.xml",
+    "publisher_download_updated": "2019-10-31",
+    "retrieved_at_utc": "2026-08-28T10:11:46Z",
+    "license_url": "http://bigg.ucsd.edu/license"
+  },
+  "associated_publication": {
+    "citation_key": "monk2016",
+    "doi": "10.1016/j.cels.2016.08.013",
+    "pmid": "27667363"
+  },
+  "platform_publication": {
+    "citation_key": "king2016",
+    "doi": "10.1093/nar/gkv1049",
+    "pmid": "26476456"
+  },
+  "integrity_policy": "Frozen input. Never modify, normalize or regenerate in place; a later source revision must be downloaded under a separate name."
+}

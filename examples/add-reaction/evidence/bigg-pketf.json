@@ -1,0 +1,40 @@
+{
+  "retrieved_at_utc": "2026-09-05T19:20:00Z",
+  "record": {
+    "database": "BiGG Models",
+    "type": "universal reaction",
+    "id": "PKETF",
+    "url": "http://bigg.ucsd.edu/universal/reactions/PKETF",
+    "api_url": "https://bigg.ucsd.edu/api/v2/universal/reactions/PKETF",
+    "name": "Phosphoketolase (fructose-6-phosphate utilizing)",
+    "reaction_string": "f6p_c + pi_c <-> actp_c + e4p_c + h2o_c",
+    "models_containing_reaction": ["iJB785", "iLB1027_lipid", "iSynCJ816"]
+  },
+  "related_record": {
+    "id": "PKETX",
+    "url": "http://bigg.ucsd.edu/universal/reactions/PKETX",
+    "name": "Phosphoketolase (xylulose-5-phosphate utilizing)",
+    "reaction_string": "pi_c + xu5p__D_c <-> actp_c + g3p_c + h2o_c",
+    "note": "Reserved as a second normal case; also absent from the base model."
+  },
+  "scientific_basis": {
+    "citation_key": "bogorad2013",
+    "doi": "10.1038/nature12575",
+    "pmid": "24077099",
+    "relevance": "Reports synthetic non-oxidative glycolysis in E. coli built on phosphoketolase, converting hexose to acetyl-CoA without the carbon loss of pyruvate decarboxylation."
+  },
+  "base_model_verification": {
+    "method": "COBRApy, read-only, against the frozen SBML",
+    "reaction_absent": ["PKETF", "PKETX", "PKL"],
+    "metabolites_present": {
+      "f6p_c": {"formula": "C6H11O9P", "charge": 0},
+      "pi_c": {"formula": "HO4P", "charge": 0},
+      "actp_c": {"formula": "C2H3O5P", "charge": 0},
+      "e4p_c": {"formula": "C4H7O7P", "charge": 0},
+      "h2o_c": {"formula": "H2O", "charge": 0}
+    },
+    "mass_balance": "check_mass_balance() returned empty for the requested stoichiometry",
+    "downstream_consumers_of_actp_c": ["PTAr", "ACKr"],
+    "wild_type_growth_per_hour": 0.9823963461342909
+  }
+}

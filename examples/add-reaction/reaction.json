@@ -1,0 +1,22 @@
+{
+  "reaction_id": "PKETF",
+  "name": "Phosphoketolase (fructose-6-phosphate utilizing)",
+  "metabolites": {
+    "f6p_c": -1,
+    "pi_c": -1,
+    "actp_c": 1,
+    "e4p_c": 1,
+    "h2o_c": 1
+  },
+  "lower_bound": 0.0,
+  "upper_bound": 1000.0,
+  "gene_reaction_rule": "xfp",
+  "subsystem": "Heterologous pathway",
+  "provenance": {
+    "identifier_source": "BiGG universal reaction PKETF",
+    "identifier_url": "http://bigg.ucsd.edu/universal/reactions/PKETF",
+    "scientific_basis": "bogorad2013",
+    "retrieved_at_utc": "2026-09-05T19:20:00Z",
+    "bound_rationale": "BiGG records the universal reaction as reversible. This request specifies the irreversible forward direction, matching the engineered use of the enzyme as a one-way route to acetyl-phosphate."
+  }
+}
