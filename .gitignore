@@ -10,6 +10,7 @@ __pycache__/
 # Tooling caches
 .pytest_cache/
 .ruff_cache/
+.hermes-tmp.*/
 
 # Per-run outputs; publish deliberately, never by default
 runs/
