@@ -147,6 +147,10 @@ Only a genuine conflict or a genuine gap goes back to the user.
   cobalt, `CO` is carbon monoxide, and `ACP_c` is not `acp_c`. If an identifier you
   copied from a request does not resolve, check its capitalisation before concluding
   the metabolite is absent.
+- **Two different metabolites answering to the same query is ambiguity, whichever
+  fields matched.** A name matching one and a formula matching another is two
+  chemicals sharing a string; the tool will not rank one above the other. Only an
+  exact *identifier* settles a query on its own.
 - **Pass `--source_manifest` when the model has one.** Without it the tool proves
   only that the file did not change during the command, not that it is the approved
   artifact; the payload's `baseline_verified_against` says which you got. The example

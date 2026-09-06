@@ -246,11 +246,15 @@ passed.
 uv run hermes-gem-maintenance export --model=MODEL --candidate=CAND.xml --reaction=SPEC.json --output=OUT.xml
 ```
 
-Re-loads the candidate from disk, re-runs every check, and writes the deliverable
-only if every check ran and passed. A candidate with nothing in `failed` but
-something in `unverifiable` is refused too, with a distinct message — an untested
-model must not ship as a verified one. On success the payload carries `delivered`,
-`delivered_sha256`, and the full check result. On failure nothing is written:
+Re-loads the candidate from disk, re-runs every check, **writes the deliverable to a
+private staged path, loads that file back and checks it again**, and only then
+publishes it by no-clobber rename. A candidate with nothing in `failed` but something
+in `unverifiable` is refused too, with a distinct message — an untested model must not
+ship as a verified one. The checks reported in the payload describe the staged
+artifact that was actually released, not the in-memory object it came from: existing
+on disk and having a SHA-256 is not evidence of being a valid model. On success the
+payload carries `delivered`, `delivered_sha256`, and the full check result. On failure
+nothing is written and no partial file is left behind:
 
 ```json
 {
@@ -303,15 +307,23 @@ Worked examples:
 
 ## Python API
 
-The same operations, for tests and reuse. The CLI adds no logic of its own.
+The same operations, for tests and reuse. The CLI adds no logic of its own: it parses
+arguments, calls these functions, and serializes the result.
 
 ```python
 from hermes_gem_maintenance import (
     ReactionRequest, add_reaction, check_candidate,
-    load_model, save_candidate, file_digest, verify_digest,
+    build_candidate, publish_deliverable,
+    load_model, file_digest, verify_digest, verify_source,
     resolve_metabolite, require_unique_metabolite,
 )
 ```
+
+`build_candidate` and `publish_deliverable` are what the CLI's `add_reaction` and
+`export` call. Use them rather than assembling `save_candidate` yourself: the source
+verification, staged write, re-check of the published bytes and no-clobber publication
+live inside them, so hand-rolling the sequence produces a weaker artifact that looks
+the same.
 
 `require_unique_metabolite` raises `InsufficientInformationError` with the candidates
 listed rather than returning a best guess — the same refusal the CLI reports.

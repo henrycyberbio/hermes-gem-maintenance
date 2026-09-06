@@ -5,7 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
+import tempfile
 from contextlib import contextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from cobra.io import read_sbml_model, write_sbml_model
@@ -14,7 +17,6 @@ from hermes_gem_maintenance.errors import ModelIntegrityError
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
-    from pathlib import Path
 
     import cobra
 
@@ -100,24 +102,60 @@ def save_candidate(model: cobra.Model, destination: Path, *, protected: Path) ->
 
 @contextmanager
 def staged_write(destination: Path, *, protected: Path) -> Iterator[Path]:
-    """Yield a temporary path that becomes `destination` only on a clean exit.
+    """Yield a private temporary path that becomes `destination` on a clean exit.
 
-    A deliverable is a claim that the run succeeded. Writing it before the last check
-    has passed means a failure leaves a full-sized file sitting at the final path,
-    indistinguishable from a real result. Staging beside the destination keeps the
-    rename atomic (same filesystem) and guarantees the final path never exists unless
-    every check that follows the write also passed.
+    A deliverable is a claim that the run succeeded, so the final path must not exist
+    until every check has passed. Three properties matter and each was wrong in an
+    earlier version:
+
+    - The staging name is unique per call. A fixed `.name.partial` was deleted on
+      entry, which destroyed a concurrent run's work in progress, and could delete a
+      *baseline* that happened to carry that name.
+    - Publication is no-clobber. `Path.replace()` overwrites, so checking the
+      destination on entry and replacing on exit still clobbered a file created in
+      between -- the refusal to overwrite evidence was not actually enforced.
+    - The staging file is removed on every exit path, so a failure leaves neither a
+      partial file nor anything at the destination.
     """
     destination = _guard_destination(destination, protected)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    staged = destination.with_name(f".{destination.name}.partial")
-    staged.unlink(missing_ok=True)
+    handle, raw = tempfile.mkstemp(
+        prefix=f".{destination.name}.", suffix=".partial", dir=destination.parent
+    )
+    os.close(handle)
+    staged = Path(raw)
+    if staged.resolve() == protected.resolve():
+        staged.unlink(missing_ok=True)
+        msg = "refusing to stage over the baseline model"
+        raise ModelIntegrityError(msg, path=staged.name)
     try:
         yield staged
-        staged.replace(destination)
+        _publish(staged, destination)
         logger.info("published %s", destination.name)
     finally:
         staged.unlink(missing_ok=True)
+
+
+def _publish(staged: Path, destination: Path) -> None:
+    """Move a staged file to its final path, refusing to overwrite anything there.
+
+    `os.link` fails with FileExistsError when the destination exists, on both POSIX
+    and NTFS, which is the no-clobber guarantee `Path.replace()` cannot give. The
+    fallback covers filesystems without hard links: exclusive creation reserves the
+    name atomically, then the bytes are copied into the reserved file.
+    """
+    try:
+        os.link(staged, destination)
+    except FileExistsError as exc:
+        msg = "candidate path already exists"
+        raise ModelIntegrityError(msg, path=destination.name) from exc
+    except OSError:
+        try:
+            with destination.open("xb") as target:
+                target.write(staged.read_bytes())
+        except FileExistsError as exc:
+            msg = "candidate path already exists"
+            raise ModelIntegrityError(msg, path=destination.name) from exc
 
 
 def _guard_destination(destination: Path, protected: Path) -> Path:

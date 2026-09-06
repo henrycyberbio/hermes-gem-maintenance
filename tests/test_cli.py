@@ -7,13 +7,14 @@ matters most: a failing candidate must not produce a deliverable.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import cobra
 import pytest
 from cobra.io import write_sbml_model
 
-from hermes_gem_maintenance import cli as cli_module
+from hermes_gem_maintenance import publish as publish_module
+from hermes_gem_maintenance.changes import ReactionRequest
 from hermes_gem_maintenance.cli import Cli
 from hermes_gem_maintenance.errors import (
     InsufficientInformationError,
@@ -23,9 +24,7 @@ from hermes_gem_maintenance.errors import (
 )
 from hermes_gem_maintenance.inspect import require_unique_metabolite
 from hermes_gem_maintenance.model_io import file_digest, load_model
-
-if TYPE_CHECKING:
-    from pathlib import Path
+from hermes_gem_maintenance.publish import build_candidate, publish_deliverable
 
 # ==== fixtures ====
 
@@ -339,13 +338,13 @@ def test_export_leaves_no_deliverable_when_the_baseline_changes_mid_run(
         model=str(baseline), reaction=str(request_file), output=str(candidate)
     )
     delivered = tmp_path / "result.xml"
-    real_write = cli_module.write_sbml_model
+    real_write = publish_module.write_sbml_model
 
     def write_then_tamper(model: object, path: str) -> None:
         real_write(model, path)
         baseline.write_bytes(baseline.read_bytes() + b"<!-- tampered -->")
 
-    monkeypatch.setattr(cli_module, "write_sbml_model", write_then_tamper)
+    monkeypatch.setattr(publish_module, "write_sbml_model", write_then_tamper)
     # WHEN exporting.
     # THEN the integrity failure is reported and nothing is left at the output path.
     with pytest.raises(ModelIntegrityError):
@@ -411,6 +410,118 @@ def test_payload_says_which_baseline_guarantee_was_given(
         )
     )
     assert "source manifest" in verified["baseline_verified_against"]
+
+
+def test_export_refuses_to_publish_bytes_that_are_not_a_model(
+    baseline: Path, request_file: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # GIVEN a writer that returns cleanly but produces something unreadable.
+    # (Regression: export hashed the staged file without reading it back, so a file
+    # containing "not SBML" was published with status "passed" -- existing on disk
+    # and having a SHA-256 is not evidence of being a valid model.)
+    candidate = tmp_path / "candidate.xml"
+    Cli().add_reaction(
+        model=str(baseline), reaction=str(request_file), output=str(candidate)
+    )
+
+    def garbage_writer(model: object, path: str) -> None:
+        Path(path).write_text("not SBML", encoding="utf-8")
+
+    monkeypatch.setattr(publish_module, "write_sbml_model", garbage_writer)
+    delivered = tmp_path / "result.xml"
+    # WHEN exporting.
+    # THEN publication fails and nothing is left behind.
+    with pytest.raises(ValidationFailedError, match="staged deliverable"):
+        Cli().export(
+            model=str(baseline),
+            candidate=str(candidate),
+            reaction=str(request_file),
+            output=str(delivered),
+        )
+    assert not delivered.exists()
+
+
+def test_export_refuses_to_publish_a_model_that_is_not_the_candidate(
+    baseline: Path, request_file: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # GIVEN a writer that produces a perfectly valid SBML file which is not the
+    # candidate that was checked -- here, the untouched baseline. Reading it back
+    # succeeds, so only re-running the checks against the staged bytes catches it.
+    candidate = tmp_path / "candidate.xml"
+    Cli().add_reaction(
+        model=str(baseline), reaction=str(request_file), output=str(candidate)
+    )
+    substitute = load_model(baseline)
+
+    def writes_the_wrong_model(model: object, path: str) -> None:
+        write_sbml_model(substitute, path)
+
+    monkeypatch.setattr(publish_module, "write_sbml_model", writes_the_wrong_model)
+    delivered = tmp_path / "result.xml"
+    # WHEN exporting.
+    # THEN publication is refused: the checked object and the published bytes must be
+    # the same artifact, and hashing the file proves nothing about which model it is.
+    with pytest.raises(ValidationFailedError, match="staged deliverable"):
+        Cli().export(
+            model=str(baseline),
+            candidate=str(candidate),
+            reaction=str(request_file),
+            output=str(delivered),
+        )
+    assert not delivered.exists()
+
+
+def test_syntactically_invalid_json_is_a_structured_error(
+    baseline: Path, tmp_path: Path
+) -> None:
+    # GIVEN a reaction file that is not parsable JSON at all.
+    # (Regression: only malformed *definitions* were converted; a syntax error still
+    # escaped as a raw JSONDecodeError traceback, so the documented error taxonomy
+    # did not hold for the most ordinary kind of hand-editing mistake.)
+    broken = tmp_path / "broken.json"
+    broken.write_text("{bad json", encoding="utf-8")
+    # WHEN adding a reaction from it.
+    # THEN it arrives in the taxonomy, naming the file and the position.
+    with pytest.raises(RequestViolationError) as caught:
+        Cli().add_reaction(
+            model=str(baseline),
+            reaction=str(broken),
+            output=str(tmp_path / "never.xml"),
+        )
+    payload = caught.value.as_dict()
+    assert payload["category"] == "request_violation"
+    assert payload["line"] == 1
+    assert not (tmp_path / "never.xml").exists()
+
+
+def test_python_api_publishes_with_the_same_guarantees_as_the_cli(
+    baseline: Path, request_file: Path, tmp_path: Path
+) -> None:
+    # GIVEN a Python caller using the library rather than the CLI.
+    # (Regression: staging, source verification and re-checking lived inside the CLI
+    # methods, so a Python caller could only reach the weaker save_candidate() path
+    # and silently got none of the invariants the project advertises.)
+    spec = json.loads(request_file.read_text(encoding="utf-8"))
+    request = ReactionRequest.from_dict(spec)
+    manifest = tmp_path / "source.json"
+    manifest.write_text(
+        json.dumps({"artifact": {"sha256": file_digest(baseline)}}), encoding="utf-8"
+    )
+    # WHEN building and publishing through the library API.
+    built = build_candidate(
+        baseline, request, tmp_path / "cand.xml", manifest=manifest
+    )
+    published = publish_deliverable(
+        baseline,
+        tmp_path / "cand.xml",
+        request,
+        tmp_path / "out.xml",
+        manifest=manifest,
+    )
+    # THEN the same provenance and check guarantees appear in the result.
+    assert "source manifest" in built.baseline_verified_against
+    assert published.checks["status"] == "passed"
+    assert (tmp_path / "out.xml").exists()
 
 
 def test_export_reports_a_failing_candidate_as_distinct_from_a_damaged_baseline(

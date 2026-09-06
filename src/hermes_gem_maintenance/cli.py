@@ -13,11 +13,13 @@ from pathlib import Path
 from typing import Any
 
 import fire
-from cobra.io import write_sbml_model
 
-from hermes_gem_maintenance.changes import ReactionRequest, add_reaction
+from hermes_gem_maintenance.changes import ReactionRequest
 from hermes_gem_maintenance.checks import check_candidate
-from hermes_gem_maintenance.errors import GemMaintenanceError, ValidationFailedError
+from hermes_gem_maintenance.errors import (
+    GemMaintenanceError,
+    RequestViolationError,
+)
 from hermes_gem_maintenance.inspect import (
     describe_metabolite,
     describe_reaction,
@@ -25,13 +27,8 @@ from hermes_gem_maintenance.inspect import (
     summarize,
     unique_match,
 )
-from hermes_gem_maintenance.model_io import (
-    file_digest,
-    load_model,
-    staged_write,
-    verify_digest,
-    verify_source,
-)
+from hermes_gem_maintenance.model_io import load_model
+from hermes_gem_maintenance.publish import build_candidate, publish_deliverable
 
 logger = logging.getLogger(__name__)
 
@@ -41,22 +38,31 @@ def _emit(payload: dict[str, Any]) -> str:
     return json.dumps(payload, indent=2, sort_keys=True)
 
 
-def _provenance(source_manifest: str, expected_sha256: str) -> str:
-    """State which guarantee the baseline check actually gave.
-
-    "Unchanged during this command" and "is the approved artifact" are different
-    claims, and a payload that does not distinguish them invites the weaker one to be
-    read as the stronger.
-    """
-    if source_manifest:
-        return f"source manifest: {Path(source_manifest).name}"
-    if expected_sha256:
-        return "caller-supplied expected_sha256"
-    return "self-digest only: unchanged during this command, provenance unverified"
-
-
 def _read_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+    """Parse a JSON input file, reporting syntax errors inside the taxonomy.
+
+    A file the user hand-edited is user input like any other. Letting a
+    JSONDecodeError escape prints a Python traceback where the caller expects a
+    structured error with a category, which is exactly the contract this package
+    publishes.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        msg = f"cannot read {path.name}: {exc.strerror or 'unreadable'}"
+        raise RequestViolationError(msg, path=path.name) from exc
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        where = f"line {exc.lineno} column {exc.colno}"
+        msg = f"{path.name} is not valid JSON: {exc.msg} at {where}"
+        raise RequestViolationError(
+            msg, path=path.name, line=exc.lineno, column=exc.colno
+        ) from exc
+    if not isinstance(parsed, dict):
+        msg = f"{path.name} must contain a JSON object"
+        raise RequestViolationError(msg, path=path.name)
+    return parsed
 
 
 class Cli:
@@ -122,33 +128,15 @@ class Cli:
                 baseline must match the SHA-256 it records before anything is read.
             expected_sha256: The approved digest, if there is no manifest.
         """
-        baseline = Path(model)
-        before = verify_source(
-            baseline,
-            manifest=Path(source_manifest) if source_manifest else None,
-            expected=expected_sha256,
-        )
         request = ReactionRequest.from_dict(_read_json(Path(reaction)))
-
-        loaded = load_model(baseline)
-        add_reaction(loaded, request)
-
-        with staged_write(Path(output), protected=baseline) as staged:
-            write_sbml_model(loaded, str(staged))
-            verify_digest(baseline, before)
-            candidate_digest = file_digest(staged)
-
-        return _emit(
-            {
-                "reaction_id": request.reaction_id,
-                "candidate": Path(output).name,
-                "candidate_sha256": candidate_digest,
-                "baseline_sha256": before,
-                "baseline_verified_against": _provenance(
-                    source_manifest, expected_sha256
-                ),
-            }
+        result = build_candidate(
+            Path(model),
+            request,
+            Path(output),
+            manifest=Path(source_manifest) if source_manifest else None,
+            expected_sha256=expected_sha256,
         )
+        return _emit(result.as_dict())
 
     def check(self, model: str, candidate: str, reaction: str) -> str:
         """Verify a candidate matches the request and changed nothing else.
@@ -191,39 +179,15 @@ class Cli:
             expected_sha256: The approved digest, if there is no manifest.
         """
         request = ReactionRequest.from_dict(_read_json(Path(reaction)))
-        baseline = Path(model)
-        before = verify_source(
-            baseline,
+        result = publish_deliverable(
+            Path(model),
+            Path(candidate),
+            request,
+            Path(output),
             manifest=Path(source_manifest) if source_manifest else None,
-            expected=expected_sha256,
+            expected_sha256=expected_sha256,
         )
-
-        loaded_candidate = load_model(Path(candidate))
-        result = check_candidate(load_model(baseline), loaded_candidate, request)
-        if not result.ok:
-            msg = (
-                "candidate failed re-validation; no deliverable written"
-                if result.blocked
-                else "candidate could not be fully verified; no deliverable written"
-            )
-            raise ValidationFailedError(msg, **result.as_dict())
-
-        with staged_write(Path(output), protected=baseline) as staged:
-            write_sbml_model(loaded_candidate, str(staged))
-            verify_digest(baseline, before)
-            delivered_digest = file_digest(staged)
-
-        return _emit(
-            {
-                "reaction_id": request.reaction_id,
-                "delivered": Path(output).name,
-                "delivered_sha256": delivered_digest,
-                "baseline_verified_against": _provenance(
-                    source_manifest, expected_sha256
-                ),
-                **result.as_dict(),
-            }
-        )
+        return _emit(result.as_dict())
 
 
 def main() -> None:

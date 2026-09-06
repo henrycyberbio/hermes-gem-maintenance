@@ -16,20 +16,8 @@ when to ask rather than assume. Source models are immutable; every operation rea
 the original or writes an independent copy.
 
 **Status:** the package and CLI are working and tested against the frozen model. The
-skill in `skills/gem-maintenance/` drives them from a natural-language request. It has
-been exercised by agents given only the request and the skill — no access to the
-source, tests, or worked answer — on the successful case, on two requests it should
-refuse, and on one it should correct before completing; see
-[`examples/scenarios/`](examples/scenarios/).
-
-Those exercises cover the paths an agent takes with a well-formed request. Two rounds
-of adversarial review of the package itself found defects they could not reach:
-delivery of a candidate whose balance check never ran, unchecked reaction metadata,
-exact identifiers made unresolvable by substring noise, malformed JSON escaping the
-error taxonomy, a "check" that accepted a candidate which had added nothing, a
-deliverable left on disk after a failed integrity check, and case-folding that
-conflated `CO` with `Co`. All are fixed and pinned by regression tests. Treat
-behavioural exercises and adversarial review as answering different questions.
+skill in `skills/gem-maintenance/` drives them from a natural-language request; see
+[`examples/`](examples/) for the worked case and for requests the workflow refuses.
 
 ## Use
 
@@ -62,14 +50,15 @@ uv run hermes-gem-maintenance export   --model=MODEL --candidate=CAND.xml --reac
 
 `resolve` returns every plausible match with the reason it matched and never picks a
 winner; choosing between candidates is the caller's judgment. `export` re-checks the
-candidate as loaded from disk and refuses to write a deliverable unless every check
-ran and passed. A check that could not be decided blocks delivery too. Deliverables
-are published by atomic rename after the final baseline check, so a failed run leaves
-nothing at the output path.
+candidate, stages the deliverable, reads it back and checks it again, then publishes
+without overwriting anything at the destination. `--source_manifest` asserts which
+model the caller expected; the result's `baseline_verified_against` names the
+guarantee actually obtained.
 
-`--source_manifest` is how a caller asserts *which* model it expected. Without it the
-tool can only confirm the file did not change while the command ran; the result's
-`baseline_verified_against` field names the guarantee actually obtained.
+The CLI is a thin wrapper: it calls `build_candidate` and `publish_deliverable` from
+the package, so a Python caller gets the same guarantees. See
+[`skills/gem-maintenance/references/tool-interface.md`](skills/gem-maintenance/references/tool-interface.md)
+for the full contract.
 
 Errors carry a category so a caller can tell them apart without parsing prose:
 

@@ -51,6 +51,7 @@ MATCH_KINDS: tuple[MatchKind, ...] = (
 
 _MATCH_RANK = {kind.label: rank for rank, kind in enumerate(MATCH_KINDS)}
 _EXACT_LABELS = frozenset(kind.label for kind in MATCH_KINDS if kind.exact)
+_EXACT_ID_LABEL = next(k.label for k in MATCH_KINDS if k.exact and k.field == "id")
 
 # How many weak (substring) matches may sit beside an exact hit before the query is
 # treated as too vague to have identified anything. A handful of near-misses is
@@ -163,8 +164,7 @@ def _classify(
 def unique_match(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
     """The one candidate a caller may act on, or None when the query is ambiguous.
 
-    Uniqueness is decided by the *strongest kind of evidence present*, never by the
-    total number of candidates.
+    Uniqueness is decided by the *kind of evidence*, never by the candidate count.
 
     An identifier is unique within a model by construction, so a query matching one
     exactly has identified that metabolite -- however many other identifiers happen to
@@ -172,11 +172,15 @@ def unique_match(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
     inside sixteen others, and letting that crowd overrule the exact hit made six
     legitimate identifiers unresolvable.
 
-    Names and formulae are not unique by construction, so they stay subject to the
-    crowd test: `phosphate` matches one metabolite named exactly "Phosphate" and 165
-    others, and a word that vague described a class rather than a metabolite. Two
-    exact matches of any kind is real ambiguity -- normally one species in several
-    compartments -- and the caller must narrow by compartment.
+    Names and formulae are not unique keys, so all non-identifier exact matches are
+    weighed together: if they point at more than one metabolite the query is ambiguous,
+    even when each kind on its own matched once. A name matching one metabolite while
+    a formula matches a different one is two chemicals answering to the same string --
+    ranking name above formula there would pick by table order, not by evidence.
+
+    They also stay subject to the crowd test: `phosphate` matches one metabolite named
+    exactly "Phosphate" and 165 others, and a word that vague described a class rather
+    than a metabolite.
 
     A query matching only substrings settles nothing unless there is exactly one, and
     nothing at all once the crowd exceeds WEAK_MATCH_CEILING.
@@ -188,19 +192,17 @@ def unique_match(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
     if not candidates:
         return None
 
-    weak = [c for c in candidates if c["matched_on"] not in _EXACT_LABELS]
-    crowded = len(weak) > WEAK_MATCH_CEILING
+    identifiers = [c for c in candidates if c["matched_on"] == _EXACT_ID_LABEL]
+    if identifiers:
+        return identifiers[0] if len(identifiers) == 1 else None
 
-    for kind in MATCH_KINDS:
-        tier = [c for c in candidates if c["matched_on"] == kind.label]
-        if not tier:
-            continue
-        if len(tier) > 1:
-            return None
-        if kind.field == "id" and kind.exact:
-            return tier[0]
-        return None if crowded else tier[0]
-    return None
+    exact = [c for c in candidates if c["matched_on"] in _EXACT_LABELS]
+    weak = [c for c in candidates if c["matched_on"] not in _EXACT_LABELS]
+    if len(weak) > WEAK_MATCH_CEILING:
+        return None
+    if exact:
+        return exact[0] if len({c["id"] for c in exact}) == 1 else None
+    return weak[0] if len(weak) == 1 else None
 
 
 def require_unique_metabolite(

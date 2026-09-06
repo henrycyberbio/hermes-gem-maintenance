@@ -14,6 +14,7 @@ from hermes_gem_maintenance import (
     require_unique_metabolite,
     resolve_metabolite,
     save_candidate,
+    staged_write,
     summarize,
     verify_digest,
 )
@@ -264,6 +265,77 @@ def test_names_remain_case_insensitive(model: cobra.Model) -> None:
     # WHEN querying it in a different case.
     # THEN it still matches: prose carries no case convention, unlike formulae.
     assert require_unique_metabolite(model, "peculiar compound")["id"] == "zzz_c"
+
+
+def test_publication_refuses_a_destination_created_after_the_guard(
+    tmp_path: Path,
+) -> None:
+    # GIVEN a run that is beaten to its output path by another writer after the
+    # up-front existence check. (Regression: publication used Path.replace(), which
+    # overwrites, so the documented refusal to clobber evidence was not enforced.)
+    protected = tmp_path / "base.xml"
+    protected.write_text("baseline", encoding="utf-8")
+    destination = tmp_path / "result.xml"
+    # WHEN publishing over the file the other writer left.
+    # THEN it refuses, and the other writer's bytes survive untouched.
+    def race() -> None:
+        with staged_write(destination, protected=protected) as staged:
+            staged.write_text("mine", encoding="utf-8")
+            destination.write_text("late evidence", encoding="utf-8")
+
+    with pytest.raises(ModelIntegrityError, match="already exists"):
+        race()
+    assert destination.read_text(encoding="utf-8") == "late evidence"
+
+
+def test_staging_does_not_disturb_another_run(tmp_path: Path) -> None:
+    # GIVEN a concurrent run's staging file sitting in the output directory.
+    # (Regression: the staging name was a fixed `.<name>.partial` that was unlinked
+    # on entry, destroying whatever another run had in progress.)
+    protected = tmp_path / "base.xml"
+    protected.write_text("baseline", encoding="utf-8")
+    destination = tmp_path / "result.xml"
+    other = tmp_path / ".result.xml.partial"
+    other.write_text("another run's work", encoding="utf-8")
+    # WHEN a new run stages and publishes.
+    with staged_write(destination, protected=protected) as staged:
+        staged.write_text("mine", encoding="utf-8")
+    # THEN the other run's file is untouched.
+    assert other.read_text(encoding="utf-8") == "another run's work"
+    assert destination.read_text(encoding="utf-8") == "mine"
+
+
+def test_staging_never_deletes_the_protected_baseline(tmp_path: Path) -> None:
+    # GIVEN a baseline whose name collides with the old fixed staging pattern.
+    # (Regression: `.out.xml.partial` as a baseline was unlinked by the staging
+    # cleanup -- the guard deleted the very file it existed to protect.)
+    protected = tmp_path / ".out.xml.partial"
+    protected.write_text("PRECIOUS BASELINE", encoding="utf-8")
+    destination = tmp_path / "out.xml"
+    # WHEN a run stages and publishes.
+    with staged_write(destination, protected=protected) as staged:
+        staged.write_text("mine", encoding="utf-8")
+    # THEN the baseline is intact.
+    assert protected.read_text(encoding="utf-8") == "PRECIOUS BASELINE"
+
+
+def test_failed_run_leaves_no_staging_file(tmp_path: Path) -> None:
+    # GIVEN a run that raises after writing its staged bytes.
+    protected = tmp_path / "base.xml"
+    protected.write_text("baseline", encoding="utf-8")
+    destination = tmp_path / "result.xml"
+    # WHEN the body fails.
+    def failing_run() -> None:
+        with staged_write(destination, protected=protected) as staged:
+            staged.write_text("partial work", encoding="utf-8")
+            msg = "check failed"
+            raise RuntimeError(msg)
+
+    with pytest.raises(RuntimeError):
+        failing_run()
+    # THEN neither the destination nor a partial file remains.
+    assert not destination.exists()
+    assert not list(tmp_path.glob(".*partial*"))
 
 
 # ==== write guards ====

@@ -30,14 +30,25 @@ from hermes_gem_maintenance.inspect import (
     unique_match,
 )
 from hermes_gem_maintenance.model_io import (
+    approved_digest,
     file_digest,
     load_model,
     save_candidate,
+    staged_write,
     verify_digest,
+    verify_source,
+)
+from hermes_gem_maintenance.publish import (
+    CandidateResult,
+    ExportResult,
+    build_candidate,
+    publish_deliverable,
 )
 
 __all__ = [
+    "CandidateResult",
     "CheckResult",
+    "ExportResult",
     "GemMaintenanceError",
     "InsufficientInformationError",
     "ModelIntegrityError",
@@ -45,6 +56,8 @@ __all__ = [
     "RequestViolationError",
     "ValidationFailedError",
     "add_reaction",
+    "approved_digest",
+    "build_candidate",
     "canonical_gpr",
     "check_candidate",
     "describe_metabolite",
@@ -52,11 +65,14 @@ __all__ = [
     "diff_snapshots",
     "file_digest",
     "load_model",
+    "publish_deliverable",
     "require_unique_metabolite",
     "resolve_metabolite",
     "save_candidate",
     "semantic_snapshot",
+    "staged_write",
     "summarize",
     "unique_match",
     "verify_digest",
+    "verify_source",
 ]
