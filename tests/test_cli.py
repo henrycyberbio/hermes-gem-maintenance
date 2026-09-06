@@ -430,8 +430,10 @@ def test_export_refuses_to_publish_bytes_that_are_not_a_model(
     monkeypatch.setattr(publish_module, "write_sbml_model", garbage_writer)
     delivered = tmp_path / "result.xml"
     # WHEN exporting.
-    # THEN publication fails and nothing is left behind.
-    with pytest.raises(ValidationFailedError, match="staged deliverable"):
+    # THEN publication fails inside the taxonomy and nothing is left behind. The
+    # category is model_integrity: the artifact is not what it claims to be, which is
+    # a different problem from a candidate that failed its checks.
+    with pytest.raises(ModelIntegrityError, match="could not be read"):
         Cli().export(
             model=str(baseline),
             candidate=str(candidate),
@@ -439,6 +441,59 @@ def test_export_refuses_to_publish_bytes_that_are_not_a_model(
             output=str(delivered),
         )
     assert not delivered.exists()
+
+
+def test_unreadable_candidate_is_a_structured_error(
+    baseline: Path, request_file: Path, tmp_path: Path
+) -> None:
+    # GIVEN a candidate file the user supplied that is not SBML at all.
+    # (Regression: load_model let COBRApy's CobraSBMLError escape, so an ordinary bad
+    # input produced a traceback instead of a categorised error the agent can act on.)
+    broken = tmp_path / "bad-candidate.xml"
+    broken.write_text("not SBML", encoding="utf-8")
+    # WHEN exporting from it.
+    # THEN it arrives in the taxonomy naming the file.
+    with pytest.raises(ModelIntegrityError) as caught:
+        Cli().export(
+            model=str(baseline),
+            candidate=str(broken),
+            reaction=str(request_file),
+            output=str(tmp_path / "never.xml"),
+        )
+    assert caught.value.as_dict()["category"] == "model_integrity"
+    assert not (tmp_path / "never.xml").exists()
+
+
+def test_missing_model_file_is_a_structured_error(
+    request_file: Path, tmp_path: Path
+) -> None:
+    # GIVEN a path that does not exist.
+    # WHEN loading it.
+    # THEN it is reported as an integrity problem, not a bare OSError.
+    with pytest.raises(ModelIntegrityError, match="not found"):
+        Cli().inspect(model=str(tmp_path / "absent.xml"))
+
+
+def test_build_candidate_refuses_to_publish_unreadable_bytes(
+    baseline: Path, request_file: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # GIVEN a serializer that returns cleanly having written something unusable.
+    # (Regression: build_candidate hashed the staged file without reading it back, so
+    # a Python caller following the documented API got a success payload and a digest
+    # for a file that was not a model -- and that file is the input to every later
+    # step.)
+    def garbage_writer(model: object, path: str) -> None:
+        Path(path).write_text("not SBML", encoding="utf-8")
+
+    monkeypatch.setattr(publish_module, "write_sbml_model", garbage_writer)
+    destination = tmp_path / "candidate.xml"
+    spec = json.loads(request_file.read_text(encoding="utf-8"))
+    # WHEN building a candidate.
+    # THEN it fails and leaves nothing behind.
+    with pytest.raises(ModelIntegrityError, match="could not be read"):
+        build_candidate(baseline, ReactionRequest.from_dict(spec), destination)
+    assert not destination.exists()
+    assert not list(tmp_path.glob(".*partial*"))
 
 
 def test_export_refuses_to_publish_a_model_that_is_not_the_candidate(

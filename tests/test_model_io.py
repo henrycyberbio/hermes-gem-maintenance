@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import cobra
@@ -18,14 +19,12 @@ from hermes_gem_maintenance import (
     summarize,
     verify_digest,
 )
+from hermes_gem_maintenance import model_io as io_module
 from hermes_gem_maintenance.errors import (
     InsufficientInformationError,
     ModelIntegrityError,
 )
 from hermes_gem_maintenance.inspect import WEAK_MATCH_CEILING
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 # ==== fixtures ====
 
@@ -336,6 +335,44 @@ def test_failed_run_leaves_no_staging_file(tmp_path: Path) -> None:
     # THEN neither the destination nor a partial file remains.
     assert not destination.exists()
     assert not list(tmp_path.glob(".*partial*"))
+
+
+def test_fallback_publication_leaves_nothing_when_the_copy_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # GIVEN a filesystem with no hard links, where publication must create the
+    # destination before copying into it, and a copy that fails partway.
+    # (Regression: the exclusive-create fallback left a zero-length file at the final
+    # path when the copy raised -- a visible artifact where a failed run promises
+    # none.)
+    protected = tmp_path / "base.xml"
+    protected.write_text("baseline", encoding="utf-8")
+    destination = tmp_path / "fallback.xml"
+
+    def no_hard_links(src: object, dst: object) -> None:
+        msg = "no hard links here"
+        raise OSError(msg)
+
+    monkeypatch.setattr(io_module.os, "link", no_hard_links)
+    original_read = Path.read_bytes
+
+    def failing_read(self: Path) -> bytes:
+        if self.name.endswith(".partial"):
+            msg = "read failed mid-copy"
+            raise OSError(msg)
+        return original_read(self)
+
+    monkeypatch.setattr(Path, "read_bytes", failing_read)
+
+    def publish_run() -> None:
+        with staged_write(destination, protected=protected) as staged:
+            staged.write_text("candidate bytes", encoding="utf-8")
+
+    # WHEN publishing.
+    with pytest.raises(OSError, match="mid-copy"):
+        publish_run()
+    # THEN no truncated deliverable is left at the destination.
+    assert not destination.exists()
 
 
 # ==== write guards ====

@@ -81,9 +81,24 @@ def verify_source(model: Path, *, manifest: Path | None, expected: str) -> str:
 
 
 def load_model(path: Path) -> cobra.Model:
-    """Read an SBML model. The file is only read; nothing is written back."""
+    """Read an SBML model. The file is only read; nothing is written back.
+
+    A file that does not parse is an input that is not what it claims to be, so it
+    enters the taxonomy as `model_integrity` rather than escaping as a COBRApy
+    exception. The CLI promises structured errors with a category, and a caller
+    handed a corrupt candidate has no way to act on a traceback.
+    """
     logger.info("reading model from %s", path.name)
-    return read_sbml_model(str(path))
+    if not path.is_file():
+        msg = f"model file not found: {path.name}"
+        raise ModelIntegrityError(msg, path=path.name)
+    try:
+        return read_sbml_model(str(path))
+    except Exception as exc:
+        msg = f"{path.name} could not be read as an SBML model"
+        raise ModelIntegrityError(
+            msg, path=path.name, reason=str(exc)[:200]
+        ) from exc
 
 
 def save_candidate(model: cobra.Model, destination: Path, *, protected: Path) -> Path:
@@ -140,9 +155,14 @@ def _publish(staged: Path, destination: Path) -> None:
     """Move a staged file to its final path, refusing to overwrite anything there.
 
     `os.link` fails with FileExistsError when the destination exists, on both POSIX
-    and NTFS, which is the no-clobber guarantee `Path.replace()` cannot give. The
-    fallback covers filesystems without hard links: exclusive creation reserves the
-    name atomically, then the bytes are copied into the reserved file.
+    and NTFS, which is the no-clobber guarantee `Path.replace()` cannot give.
+
+    The fallback covers filesystems without hard links. There the destination must be
+    created before the bytes can be copied into it, so a failure mid-copy would leave
+    a truncated file at the final path -- indistinguishable from a delivered result.
+    It is removed on any failure, and callers on such a filesystem should know that
+    the destination is briefly visible while the copy runs; the hard-link path has no
+    such window.
     """
     try:
         os.link(staged, destination)
@@ -156,6 +176,9 @@ def _publish(staged: Path, destination: Path) -> None:
         except FileExistsError as exc:
             msg = "candidate path already exists"
             raise ModelIntegrityError(msg, path=destination.name) from exc
+        except BaseException:
+            destination.unlink(missing_ok=True)
+            raise
 
 
 def _guard_destination(destination: Path, protected: Path) -> Path:

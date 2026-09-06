@@ -105,13 +105,20 @@ def build_candidate(
     manifest: Path | None = None,
     expected_sha256: str = "",
 ) -> CandidateResult:
-    """Apply a request to the baseline and stage the result at `destination`."""
+    """Apply a request to the baseline and stage the result at `destination`.
+
+    The staged file is read back before it is published. A candidate is the input to
+    every later step, so writing bytes and hashing them without confirming they parse
+    would hand the caller a digest for something that is not a model -- the same
+    mistake `publish_deliverable` exists to prevent, one stage earlier.
+    """
     before = verify_source(baseline, manifest=manifest, expected=expected_sha256)
     model = load_model(baseline)
     add_reaction(model, request)
 
     with staged_write(destination, protected=baseline) as staged:
         write_sbml_model(model, str(staged))
+        load_model(staged)
         verify_digest(baseline, before)
         digest = file_digest(staged)
 
@@ -149,14 +156,10 @@ def publish_deliverable(
     with staged_write(destination, protected=baseline) as staged:
         write_sbml_model(load_model(candidate), str(staged))
 
-        try:
-            published = load_model(staged)
-        except Exception as exc:
-            msg = "staged deliverable is not a readable model; nothing published"
-            raise ValidationFailedError(
-                msg, reason=str(exc)[:200], status="failed"
-            ) from exc
-
+        # Reading the staged file back is the point: a writer that returns cleanly
+        # having emitted unusable bytes would otherwise be published with a passing
+        # verdict. load_model reports an unreadable file as `model_integrity`.
+        published = load_model(staged)
         staged_result = check_candidate(base_model, published, request)
         _refuse_unless_passed(staged_result, "staged deliverable")
 
