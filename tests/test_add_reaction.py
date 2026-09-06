@@ -1,32 +1,33 @@
-"""Behaviour checks for the add-reaction walkthrough."""
+"""Behaviour checks for adding a reaction and validating the candidate."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import cobra
 import pytest
 from cobra.io import read_sbml_model, write_sbml_model
 
-from scripts.add_reaction_walkthrough import (
-    _canonical_gpr,
-    _diff_snapshots,
-    _semantic_snapshot,
+from hermes_gem_maintenance import (
+    ReactionRequest,
     add_reaction,
+    canonical_gpr,
     check_candidate,
+    diff_snapshots,
+    semantic_snapshot,
 )
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
+from hermes_gem_maintenance.errors import (
+    InsufficientInformationError,
+    RequestViolationError,
+)
 
 # ==== fixtures ====
 
 
 @pytest.fixture
 def model() -> cobra.Model:
-    """Tiny model with the metabolites the example reaction needs."""
+    """Tiny model carrying the metabolites the example reaction needs."""
     m = cobra.Model("toy")
     m.compartments = {"c": "cytosol"}
     specs = {
@@ -37,8 +38,9 @@ def model() -> cobra.Model:
         "h2o_c": ("H2O", 0),
     }
     for mid, (formula, charge) in specs.items():
-        met = cobra.Metabolite(mid, formula=formula, charge=charge, compartment="c")
-        m.add_metabolites([met])
+        m.add_metabolites(
+            [cobra.Metabolite(mid, formula=formula, charge=charge, compartment="c")]
+        )
     existing = cobra.Reaction("ACKr", lower_bound=-1000.0, upper_bound=1000.0)
     m.add_reactions([existing])
     existing.add_metabolites({m.metabolites.actp_c: 1, m.metabolites.pi_c: -1})
@@ -47,7 +49,7 @@ def model() -> cobra.Model:
 
 @pytest.fixture
 def spec() -> dict[str, object]:
-    """The PKETF request, balanced and referencing only existing metabolites."""
+    """The PKETF request: balanced, referencing only existing metabolites."""
     return {
         "reaction_id": "PKETF",
         "name": "Phosphoketolase (fructose-6-phosphate utilizing)",
@@ -58,17 +60,54 @@ def spec() -> dict[str, object]:
     }
 
 
+@pytest.fixture
+def request_(spec: dict[str, object]) -> ReactionRequest:
+    return ReactionRequest.from_dict(spec)
+
+
+# ==== parsing a request ====
+
+
+def test_request_rejects_a_definition_missing_required_fields() -> None:
+    # GIVEN a definition with no bounds.
+    partial = {"reaction_id": "R1", "metabolites": {"a_c": -1}}
+    # WHEN parsing it.
+    # THEN it reports what is missing, so the caller can ask a specific question.
+    with pytest.raises(InsufficientInformationError) as caught:
+        ReactionRequest.from_dict(partial)
+    assert set(caught.value.context["missing"]) == {"lower_bound", "upper_bound"}
+
+
+def test_request_rejects_inverted_bounds(spec: dict[str, object]) -> None:
+    # GIVEN a definition whose lower bound exceeds its upper bound.
+    spec["lower_bound"] = 10.0
+    spec["upper_bound"] = 1.0
+    # WHEN parsing it.
+    # THEN it is a violation, not missing information; more facts would not help.
+    with pytest.raises(RequestViolationError, match="lower bound"):
+        ReactionRequest.from_dict(spec)
+
+
+def test_request_rejects_a_zero_coefficient(spec: dict[str, object]) -> None:
+    # GIVEN a stoichiometry containing a zero coefficient.
+    spec["metabolites"] = {"f6p_c": -1, "pi_c": 0}
+    # WHEN parsing it.
+    # THEN it fails; a zero coefficient silently drops a participant.
+    with pytest.raises(RequestViolationError, match="non-zero"):
+        ReactionRequest.from_dict(spec)
+
+
 # ==== adding reactions ====
 
 
 def test_add_reaction_applies_the_requested_definition(
-    model: cobra.Model, spec: dict[str, object]
+    model: cobra.Model, request_: ReactionRequest
 ) -> None:
     # GIVEN a model without PKETF.
     # WHEN adding the requested reaction.
-    added = add_reaction(model, spec)
+    added = add_reaction(model, request_)
     # THEN stoichiometry, bounds and gene rule come from the request, not defaults.
-    assert {m.id: c for m, c in added.metabolites.items()} == spec["metabolites"]
+    assert {m.id: c for m, c in added.metabolites.items()} == dict(request_.metabolites)
     assert added.bounds == (0.0, 1000.0)
     assert added.gene_reaction_rule == "xfp"
 
@@ -80,8 +119,8 @@ def test_add_reaction_refuses_an_existing_identifier(
     spec["reaction_id"] = "ACKr"
     # WHEN adding it.
     # THEN it fails; silently overwriting a curated reaction would corrupt the model.
-    with pytest.raises(ValueError, match="already exists"):
-        add_reaction(model, spec)
+    with pytest.raises(RequestViolationError, match="already exists"):
+        add_reaction(model, ReactionRequest.from_dict(spec))
 
 
 def test_add_reaction_refuses_unknown_metabolites(
@@ -91,32 +130,32 @@ def test_add_reaction_refuses_unknown_metabolites(
     spec["metabolites"] = {"f6p_c": -1, "nonexistent_c": 1}
     # WHEN adding it.
     # THEN it fails rather than inventing the metabolite.
-    with pytest.raises(ValueError, match="absent from the model"):
-        add_reaction(model, spec)
+    with pytest.raises(RequestViolationError, match="absent from the model"):
+        add_reaction(model, ReactionRequest.from_dict(spec))
 
 
 def test_add_reaction_leaves_the_base_model_untouched(
-    model: cobra.Model, spec: dict[str, object]
+    model: cobra.Model, request_: ReactionRequest
 ) -> None:
     # GIVEN a snapshot of the model before any change.
-    before = _semantic_snapshot(model)
+    before = semantic_snapshot(model)
     # WHEN adding the reaction to a copy.
-    add_reaction(model.copy(), spec)
+    add_reaction(model.copy(), request_)
     # THEN the original is unchanged; candidates must never mutate the input.
-    assert _semantic_snapshot(model) == before
+    assert semantic_snapshot(model) == before
 
 
 # ==== checking candidates ====
 
 
 def test_check_passes_for_a_faithful_candidate(
-    model: cobra.Model, spec: dict[str, object]
+    model: cobra.Model, request_: ReactionRequest
 ) -> None:
     # GIVEN a candidate built exactly from the request.
     candidate = model.copy()
-    add_reaction(candidate, spec)
+    add_reaction(candidate, request_)
     # WHEN checking it against the base model.
-    result = check_candidate(model, candidate, spec)
+    result = check_candidate(model, candidate, request_)
     # THEN nothing fails and the balance check reaches a real verdict.
     assert result.ok
     assert not result.unverifiable
@@ -124,15 +163,16 @@ def test_check_passes_for_a_faithful_candidate(
 
 
 def test_check_detects_stoichiometry_that_ignores_the_request(
-    model: cobra.Model, spec: dict[str, object]
+    model: cobra.Model, request_: ReactionRequest
 ) -> None:
     # GIVEN a candidate whose coefficients differ from what was asked.
     candidate = model.copy()
-    add_reaction(candidate, spec)
-    reaction = candidate.reactions.get_by_id("PKETF")
-    reaction.add_metabolites({candidate.metabolites.h2o_c: 1})
+    add_reaction(candidate, request_)
+    candidate.reactions.get_by_id("PKETF").add_metabolites(
+        {candidate.metabolites.h2o_c: 1}
+    )
     # WHEN checking it.
-    result = check_candidate(model, candidate, spec)
+    result = check_candidate(model, candidate, request_)
     # THEN the mismatch is reported instead of being smoothed over.
     assert not result.ok
     assert any("stoichiometry" in line for line in result.failed)
@@ -143,38 +183,39 @@ def test_check_detects_an_unbalanced_reaction(
 ) -> None:
     # GIVEN a request whose coefficients violate elemental conservation.
     spec["metabolites"] = {"f6p_c": -1, "pi_c": -1, "actp_c": 1, "e4p_c": 1}
+    unbalanced = ReactionRequest.from_dict(spec)
     candidate = model.copy()
-    add_reaction(candidate, spec)
+    add_reaction(candidate, unbalanced)
     # WHEN checking it.
-    result = check_candidate(model, candidate, spec)
+    result = check_candidate(model, candidate, unbalanced)
     # THEN the imbalance fails the check; the missing water is a real error.
     assert not result.ok
     assert any("balance" in line for line in result.failed)
 
 
 def test_check_reports_balance_as_unverifiable_without_metadata(
-    model: cobra.Model, spec: dict[str, object]
+    model: cobra.Model, request_: ReactionRequest
 ) -> None:
     # GIVEN a participant lacking a formula.
     model.metabolites.e4p_c.formula = None
     candidate = model.copy()
-    add_reaction(candidate, spec)
+    add_reaction(candidate, request_)
     # WHEN checking it.
-    result = check_candidate(model, candidate, spec)
+    result = check_candidate(model, candidate, request_)
     # THEN balance is unverifiable, never silently counted as passed.
     assert any("balance" in line for line in result.unverifiable)
     assert not any("balance" in line for line in result.passed)
 
 
 def test_check_detects_changes_beyond_the_request(
-    model: cobra.Model, spec: dict[str, object]
+    model: cobra.Model, request_: ReactionRequest
 ) -> None:
     # GIVEN a candidate that also alters an unrelated reaction's bounds.
     candidate = model.copy()
-    add_reaction(candidate, spec)
+    add_reaction(candidate, request_)
     candidate.reactions.get_by_id("ACKr").bounds = (0.0, 10.0)
     # WHEN checking it.
-    result = check_candidate(model, candidate, spec)
+    result = check_candidate(model, candidate, request_)
     # THEN the collateral edit is reported; only the requested change is acceptable.
     assert not result.ok
     assert any("unrelated" in line for line in result.failed)
@@ -192,31 +233,31 @@ def test_check_detects_changes_beyond_the_request(
     ],
 )
 def test_canonical_gpr_ignores_parentheses_and_order(left: str, right: str) -> None:
-    # GIVEN two rules that differ only in grouping or operand order.
+    # GIVEN two rules differing only in grouping or operand order.
     # WHEN canonicalizing both.
     # THEN they compare equal; COBRApy rewrites grouping on every SBML write.
-    assert _canonical_gpr(left) == _canonical_gpr(right)
+    assert canonical_gpr(left) == canonical_gpr(right)
 
 
 def test_canonical_gpr_still_separates_different_logic() -> None:
     # GIVEN rules whose boolean meaning genuinely differs.
     # WHEN canonicalizing.
     # THEN they stay distinct; the comparison must not flatten real changes away.
-    assert _canonical_gpr("a and b") != _canonical_gpr("a or b")
-    assert _canonical_gpr("a and b") != _canonical_gpr("a and c")
+    assert canonical_gpr("a and b") != canonical_gpr("a or b")
+    assert canonical_gpr("a and b") != canonical_gpr("a and c")
 
 
 def test_snapshot_diff_ignores_gene_rule_reformatting(
-    model: cobra.Model, spec: dict[str, object]
+    model: cobra.Model, request_: ReactionRequest
 ) -> None:
     # GIVEN a model whose gene rule is rewritten with equivalent grouping.
-    add_reaction(model, spec)
+    add_reaction(model, request_)
     model.reactions.get_by_id("ACKr").gene_reaction_rule = "(g1 and g2) and g3"
-    before = _semantic_snapshot(model)
+    before = semantic_snapshot(model)
     model.reactions.get_by_id("ACKr").gene_reaction_rule = "g1 and g2 and g3"
     # WHEN diffing the snapshots.
     # THEN no change is reported; this rewrite is what SBML roundtripping produces.
-    assert _diff_snapshots(before, _semantic_snapshot(model)) == {}
+    assert diff_snapshots(before, semantic_snapshot(model)) == {}
 
 
 def test_check_accepts_a_gene_rule_regrouped_by_sbml(
@@ -224,25 +265,24 @@ def test_check_accepts_a_gene_rule_regrouped_by_sbml(
 ) -> None:
     # GIVEN a request whose gene rule carries redundant parentheses.
     spec["gene_reaction_rule"] = "(g1 and g2) and g3"
+    grouped = ReactionRequest.from_dict(spec)
     candidate = model.copy()
-    add_reaction(candidate, spec)
+    add_reaction(candidate, grouped)
     # WHEN the candidate is written and read back, as export re-checking does.
     path = tmp_path / "candidate.xml"
     write_sbml_model(candidate, str(path))
     reloaded = read_sbml_model(str(path))
     # THEN the check still passes: COBRApy rewrote the grouping, not the logic.
     stored = reloaded.reactions.get_by_id("PKETF").gene_reaction_rule
-    assert stored != spec["gene_reaction_rule"]
-    result = check_candidate(model, reloaded, spec)
+    assert stored != grouped.gene_reaction_rule
+    result = check_candidate(model, reloaded, grouped)
     assert not any("gene rule" in line for line in result.failed)
 
 
 # ==== example data ====
 
 
-def test_example_reaction_matches_the_frozen_model(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_example_reaction_matches_the_frozen_model() -> None:
     # GIVEN the committed reaction definition for the example case.
     root = Path(__file__).resolve().parents[1]
     reaction_file = root / "examples/add-reaction/reaction.json"
