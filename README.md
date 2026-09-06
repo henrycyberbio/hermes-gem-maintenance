@@ -16,7 +16,9 @@ when to ask rather than assume. Source models are immutable; every operation rea
 the original or writes an independent copy.
 
 **Status:** the package and CLI are working and tested against the frozen model. The
-Hermes skill that drives them from a natural-language request is not written yet.
+skill in `skills/gem-maintenance/` drives them from a natural-language request; an
+agent given only the request and that skill reproduces the worked example
+byte-for-byte.
 
 ## Use
 
@@ -82,6 +84,7 @@ uvx ruff check .
 | Path | Contents |
 | --- | --- |
 | `src/hermes_gem_maintenance/` | Package API and CLI |
+| `skills/gem-maintenance/` | Hermes skill driving the CLI from a request |
 | `scripts/` | Walkthrough and citation renderer |
 | `examples/add-reaction/` | Frozen model, reaction definition, evidence |
 | `docs/` | Case selection, reference data, citation style |
