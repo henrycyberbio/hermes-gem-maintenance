@@ -15,21 +15,50 @@ cannot: interpreting the request, judging whether a mapping is unambiguous, deci
 when to ask rather than assume. Source models are immutable; every operation reads
 the original or writes an independent copy.
 
-**Status:** early implementation. The first case is verified end-to-end; the package,
-CLI and skill are being built around it.
+**Status:** the package and CLI are working and tested against the frozen model. The
+Hermes skill that drives them from a natural-language request is not written yet.
 
 ## Use
 
 ```bash
 uv sync
+```
+
+### The worked example
+
+```bash
 uv run python scripts/add_reaction_walkthrough.py run
 ```
 
 Adds reaction `PKETF` to the frozen `iEC1372_W3110` model and writes `candidate.xml`
 plus `checks.json` to `runs/PKETF/`. Eight checks run: reaction present,
 stoichiometry, bounds, gene rule, elemental and charge conservation, no unrelated
-semantic changes, SBML roundtrip, input unchanged. The command refuses a non-empty
-output directory and never writes to the input.
+semantic changes, SBML roundtrip, input unchanged.
+
+### The commands
+
+Each subcommand prints JSON and exits non-zero on a deliberate error.
+
+```bash
+uv run hermes-gem-maintenance inspect  --model=MODEL [--reaction=ID | --metabolite=ID]
+uv run hermes-gem-maintenance resolve  --model=MODEL --query=NAME [--compartment=C]
+uv run hermes-gem-maintenance add_reaction --model=MODEL --reaction=SPEC.json --output=CAND.xml
+uv run hermes-gem-maintenance check    --model=MODEL --candidate=CAND.xml --reaction=SPEC.json
+uv run hermes-gem-maintenance export   --model=MODEL --candidate=CAND.xml --reaction=SPEC.json --output=OUT.xml
+```
+
+`resolve` returns every plausible match with the reason it matched and never picks a
+winner; choosing between candidates is the caller's judgment. `export` re-checks the
+candidate as loaded from disk and refuses to write a deliverable that fails.
+
+Errors carry a category so a caller can tell them apart without parsing prose:
+
+| Category | Meaning | Recovery |
+| --- | --- | --- |
+| `insufficient_information` | A name is ambiguous or a field is absent | Ask a specific question |
+| `request_violation` | The request conflicts with the model or a rule | The request is wrong; more facts will not help |
+| `validation_failed` | A candidate did not pass its checks | Regenerate from the untouched baseline |
+| `model_integrity` | A baseline digest mismatch, or a write would clobber it | Stop; the inputs are not what they claim |
 
 See [`examples/add-reaction/`](examples/add-reaction/) for the request and its
 evidence, and [`docs/case-selection.md`](docs/case-selection.md) for why this case
@@ -52,7 +81,7 @@ uvx ruff check .
 
 | Path | Contents |
 | --- | --- |
-| `src/hermes_gem_maintenance/` | Package API (in progress) |
+| `src/hermes_gem_maintenance/` | Package API and CLI |
 | `scripts/` | Walkthrough and citation renderer |
 | `examples/add-reaction/` | Frozen model, reaction definition, evidence |
 | `docs/` | Case selection, reference data, citation style |
