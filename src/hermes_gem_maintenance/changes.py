@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from math import isfinite
+from typing import Any
 
 import cobra
 
@@ -12,10 +14,41 @@ from hermes_gem_maintenance.errors import (
     RequestViolationError,
 )
 
-if TYPE_CHECKING:
-    from collections.abc import Mapping
-
 REQUIRED_FIELDS = ("reaction_id", "metabolites", "lower_bound", "upper_bound")
+
+
+# ==== input validation ====
+
+
+def _finite(value: object, label: str, reaction_id: str) -> float:
+    """Coerce to a finite float, or refuse.
+
+    `float("nan")` and `float("inf")` are accepted by float() and then poison a
+    solver silently, so they are rejected here rather than downstream. Booleans are
+    refused because `True` would otherwise pass as the coefficient 1.0.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        msg = f"{label} must be numeric"
+        raise RequestViolationError(msg, reaction_id=reaction_id)
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        msg = f"{label} must be numeric"
+        raise RequestViolationError(msg, reaction_id=reaction_id) from exc
+    if not isfinite(number):
+        msg = f"{label} must be finite"
+        raise RequestViolationError(msg, reaction_id=reaction_id)
+    return number
+
+
+def _optional_text(value: object, label: str, reaction_id: str) -> str:
+    """An optional string field, defaulted to empty and type-checked when present."""
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        msg = f"{label} must be a string"
+        raise RequestViolationError(msg, reaction_id=reaction_id)
+    return value
 
 
 # ==== request model ====
@@ -35,47 +68,66 @@ class ReactionRequest:
 
     @classmethod
     def from_dict(cls, spec: Mapping[str, Any]) -> ReactionRequest:
-        """Build from a parsed definition, reporting what is missing or malformed."""
+        """Build from a parsed definition, reporting what is missing or malformed.
+
+        Every type assumption is checked here. This constructor is the package's
+        boundary against hand-written JSON, and a boundary that lets an
+        AttributeError escape has published a contract it does not keep.
+        """
+        if not isinstance(spec, Mapping):
+            msg = "reaction definition must be a JSON object"
+            raise RequestViolationError(msg)
+
         absent = [field for field in REQUIRED_FIELDS if spec.get(field) is None]
         if absent:
             msg = f"reaction definition is missing: {', '.join(absent)}"
             raise InsufficientInformationError(msg, missing=absent)
 
+        reaction_id = spec["reaction_id"]
+        if not isinstance(reaction_id, str) or not reaction_id.strip():
+            msg = "reaction_id must be a non-empty string"
+            raise RequestViolationError(msg, reaction_id=str(reaction_id))
+
         stoichiometry = spec["metabolites"]
+        if not isinstance(stoichiometry, Mapping):
+            msg = "metabolites must be a JSON object mapping identifier to coefficient"
+            raise RequestViolationError(msg, reaction_id=reaction_id)
         if not stoichiometry:
             msg = "reaction definition lists no metabolites"
             raise InsufficientInformationError(msg, missing=["metabolites"])
 
-        try:
-            coefficients = {str(k): float(v) for k, v in stoichiometry.items()}
-        except (TypeError, ValueError) as exc:
-            msg = "stoichiometric coefficients must be numeric"
-            raise RequestViolationError(msg, metabolites=dict(stoichiometry)) from exc
+        blank = [k for k in stoichiometry if not isinstance(k, str) or not k.strip()]
+        if blank:
+            msg = "metabolite identifiers must be non-empty strings"
+            raise RequestViolationError(msg, reaction_id=reaction_id)
+
+        coefficients = {
+            str(k): _finite(v, "stoichiometric coefficients", reaction_id)
+            for k, v in stoichiometry.items()
+        }
 
         if any(value == 0 for value in coefficients.values()):
             zeros = sorted(k for k, v in coefficients.items() if v == 0)
             msg = "stoichiometric coefficients must be non-zero"
             raise RequestViolationError(msg, metabolites=zeros)
 
-        try:
-            lower = float(spec["lower_bound"])
-            upper = float(spec["upper_bound"])
-        except (TypeError, ValueError) as exc:
-            msg = "bounds must be numeric"
-            raise RequestViolationError(msg) from exc
+        lower = _finite(spec["lower_bound"], "bounds", reaction_id)
+        upper = _finite(spec["upper_bound"], "bounds", reaction_id)
 
         if lower > upper:
             msg = "lower bound exceeds upper bound"
             raise RequestViolationError(msg, bounds=[lower, upper])
 
         return cls(
-            reaction_id=str(spec["reaction_id"]),
+            reaction_id=reaction_id,
             metabolites=coefficients,
             lower_bound=lower,
             upper_bound=upper,
-            name=str(spec.get("name", "")),
-            subsystem=str(spec.get("subsystem", "")),
-            gene_reaction_rule=str(spec.get("gene_reaction_rule", "")),
+            name=_optional_text(spec.get("name"), "name", reaction_id),
+            subsystem=_optional_text(spec.get("subsystem"), "subsystem", reaction_id),
+            gene_reaction_rule=_optional_text(
+                spec.get("gene_reaction_rule"), "gene_reaction_rule", reaction_id
+            ),
         )
 
 

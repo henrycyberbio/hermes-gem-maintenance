@@ -22,6 +22,13 @@ source, tests, or worked answer — on the successful case, on two requests it s
 refuse, and on one it should correct before completing; see
 [`examples/scenarios/`](examples/scenarios/).
 
+Those exercises cover the paths an agent takes with a well-formed request. An
+adversarial review of the package itself found four defects they could not reach —
+delivery of a candidate whose balance check never ran, unchecked reaction metadata,
+exact identifiers made unresolvable by substring noise, and malformed JSON escaping
+the error taxonomy. All four are fixed and pinned by regression tests. Treat
+behavioural exercises and adversarial review as answering different questions.
+
 ## Use
 
 ```bash
@@ -53,7 +60,8 @@ uv run hermes-gem-maintenance export   --model=MODEL --candidate=CAND.xml --reac
 
 `resolve` returns every plausible match with the reason it matched and never picks a
 winner; choosing between candidates is the caller's judgment. `export` re-checks the
-candidate as loaded from disk and refuses to write a deliverable that fails.
+candidate as loaded from disk and refuses to write a deliverable unless every check
+ran and passed. A check that could not be decided blocks delivery too.
 
 Errors carry a category so a caller can tell them apart without parsing prose:
 
@@ -61,7 +69,7 @@ Errors carry a category so a caller can tell them apart without parsing prose:
 | --- | --- | --- |
 | `insufficient_information` | A name is ambiguous or a field is absent | Ask a specific question |
 | `request_violation` | The request conflicts with the model or a rule | The request is wrong; more facts will not help |
-| `validation_failed` | A candidate did not pass its checks | Regenerate from the untouched baseline |
+| `validation_failed` | A candidate did not pass, or could not be fully checked | Regenerate from the untouched baseline; if the checks could not run, report what was undecidable |
 | `model_integrity` | A baseline digest mismatch, or a write would clobber it | Stop; the inputs are not what they claim |
 
 See [`examples/add-reaction/`](examples/add-reaction/) for the request and its

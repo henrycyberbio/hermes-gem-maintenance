@@ -185,6 +185,42 @@ def test_resolve_refuses_a_vague_query_despite_one_exact_hit(
         require_unique_metabolite(model, "Phosphate")
 
 
+def test_exact_identifier_outranks_a_crowd_of_substring_matches(
+    model: cobra.Model,
+) -> None:
+    # GIVEN an identifier that also appears inside far more identifiers than the
+    # weak-match ceiling allows. (Regression: the crowd test ran before the exact
+    # check, so six real identifiers in the frozen model -- g3p_c among them, a
+    # participant of a documented example -- could not be resolved at all.)
+    for index in range(WEAK_MATCH_CEILING + 5):
+        model.add_metabolites(
+            [cobra.Metabolite(f"pi_c_variant{index}", name=f"Carrier {index}",
+                              formula="HO4P", charge=0, compartment="c")]
+        )
+    # WHEN demanding a unique match for the exact identifier.
+    # THEN it resolves: an identifier is unique within a model by construction, so
+    # substring noise cannot make it ambiguous.
+    assert require_unique_metabolite(model, "pi_c")["id"] == "pi_c"
+
+
+def test_shared_formula_across_compartments_stays_ambiguous(
+    model: cobra.Model,
+) -> None:
+    # GIVEN the same species present in three compartments, as water is in a real
+    # model. (The documentation claimed `H2O` resolved outright; it cannot, because
+    # h2o_c, h2o_e and h2o_p all match the formula exactly.)
+    for compartment in ("c", "e", "p"):
+        model.add_metabolites(
+            [cobra.Metabolite(f"h2o_{compartment}", name="H2O H2O", formula="H2O",
+                              charge=0, compartment=compartment)]
+        )
+    # WHEN resolving by formula without naming a compartment.
+    # THEN it refuses; narrowing by compartment is the caller's decision.
+    with pytest.raises(InsufficientInformationError):
+        require_unique_metabolite(model, "H2O")
+    assert require_unique_metabolite(model, "H2O", compartment="c")["id"] == "h2o_c"
+
+
 # ==== write guards ====
 
 

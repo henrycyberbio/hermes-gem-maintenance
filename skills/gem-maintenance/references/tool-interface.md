@@ -123,14 +123,20 @@ Matching is literal, case-insensitive substring — there is no fuzzy matching a
 synonym table. Punctuation counts, and BiGG names are often not the words a requester
 uses:
 
-| Query | Result against this model |
-| --- | --- |
-| `fructose-6-phosphate` | 0 candidates — the model writes `D-Fructose 6-phosphate` |
-| `Fructose 6-phosphate` | 1 candidate, `resolved_id: f6p_c` |
-| `water` | 0 candidates — BiGG names water `H2O H2O` |
-| `H2O` | 3 candidates, `resolved_id: h2o_c` via `exact formula` |
-| `phosphate` | 166 candidates, `resolved_id: null` — too vague to settle |
-| `pi_c` | 4 candidates, `resolved_id: pi_c` — one exact id, rest substrings |
+| Query | Compartment | Result against this model |
+| --- | --- | --- |
+| `fructose-6-phosphate` | any | 0 candidates — the model writes `D-Fructose 6-phosphate` |
+| `Fructose 6-phosphate` | `c` | 1 candidate, `resolved_id: f6p_c` |
+| `Fructose 6-phosphate` | none | 3 candidates, `resolved_id: null` — one per compartment |
+| `water` | any | 0 candidates — BiGG names water `H2O H2O` |
+| `H2O` | `c` | 3 candidates, `resolved_id: h2o_c` via `exact formula` |
+| `H2O` | none | 7 candidates, `resolved_id: null` — water exists in all three |
+| `phosphate` | `c` | 166 candidates, `resolved_id: null` — too vague to settle |
+| `pi_c` | none | 4 candidates, `resolved_id: pi_c` — one exact id, rest substrings |
+
+The compartment column is not decoration. The same query resolves or refuses
+depending on it, because a species present in three compartments is three
+metabolites. A figure quoted without its compartment is not reproducible.
 
 **Formula is the escape hatch for an unusable name.** When a metabolite's name cannot
 be guessed, query its molecular formula: an exact formula match outranks substring
@@ -180,11 +186,19 @@ uv run hermes-gem-maintenance check --model=MODEL --candidate=CAND.xml --reactio
     "stoichiometry matches request: {'atp_c': -1.0, 'h2o_c': -1.0, 'adp_c': 1.0, 'pi_c': 1.0, 'h_c': 1.0}",
     "bounds match request: (0.0, 1000.0)",
     "gene rule matches request: demoGene",
+    "name matches request: Demonstration ATP hydrolysis",
+    "subsystem matches request: (none)",
     "mass and charge balance: balanced",
     "no unrelated semantic changes: only the requested reaction added"
   ]
 }
 ```
+
+`status` has three values, not two: `passed`, `failed`, and `unverifiable`. Every
+field the request specifies is compared, and so is every field it *omits* — a
+candidate carrying a name, subsystem or gene rule the request never asked for fails,
+because inventing metadata is the silent edit these checks exist to catch. `(none)`
+in a detail line means the request left that field empty and the candidate agreed.
 
 A failing check exits 0 with `status: "failed"` — it is a verdict, not an error. The
 `failed` entry carries the diagnosis:
@@ -200,7 +214,9 @@ correction may be made without asking.
 
 Entries under `unverifiable` did not fail — they could not be decided. A balance
 check reports `missing formula/charge: <ids>` when a participant lacks the metadata.
-Never present an unverifiable check as passed.
+That produces `status: "unverifiable"`, a third state alongside `passed` and
+`failed`, and `export` refuses to deliver it. Never present an unverifiable check as
+passed.
 
 ## export
 
@@ -209,8 +225,10 @@ uv run hermes-gem-maintenance export --model=MODEL --candidate=CAND.xml --reacti
 ```
 
 Re-loads the candidate from disk, re-runs every check, and writes the deliverable
-only if all pass. On success the payload carries `delivered`, `delivered_sha256`, and
-the full check result. On failure nothing is written:
+only if every check ran and passed. A candidate with nothing in `failed` but
+something in `unverifiable` is refused too, with a distinct message — an untested
+model must not ship as a verified one. On success the payload carries `delivered`,
+`delivered_sha256`, and the full check result. On failure nothing is written:
 
 ```json
 {
@@ -234,7 +252,18 @@ Errors print to stderr as JSON and exit 1.
 | `insufficient_information` | `reaction definition is missing: lower_bound, upper_bound` | `missing`, or `query`/`candidates` for an ambiguous name |
 | `request_violation` | `reaction <ID> already exists in the model` | `reaction_id`, `metabolites` |
 | `validation_failed` | `candidate failed re-validation; no deliverable written` | `passed`, `failed`, `unverifiable`, `status` |
+| `validation_failed` | `candidate could not be fully verified; no deliverable written` | as above, with `status: "unverifiable"` |
 | `model_integrity` | `candidate path already exists` | `path`, or `expected`/`actual` for a digest mismatch |
+
+The two `validation_failed` messages call for different responses. "Failed
+re-validation" means a check decided against the candidate: fix the definition and
+regenerate. "Could not be fully verified" means a check could not run at all —
+usually a participant missing formula or charge — so regenerating the same candidate
+changes nothing; report what could not be checked and why.
+
+A malformed definition is a `request_violation`, not a crash: `metabolites` given as
+a list, a non-numeric bound, an infinite coefficient and a non-string name all arrive
+as structured JSON with a category.
 
 Worked examples:
 

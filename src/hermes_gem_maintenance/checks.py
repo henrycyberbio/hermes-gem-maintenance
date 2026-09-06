@@ -41,13 +41,33 @@ class CheckResult:
             self.failed.append(line)
 
     @property
+    def status(self) -> str:
+        """One of failed, unverifiable, passed -- in that order of precedence.
+
+        Three states, not two. A check that could not run is not a check that
+        succeeded: a candidate whose participants lack formula or charge has never
+        been tested for mass balance, and reporting that as `passed` would put an
+        unvalidated scientific artifact behind a green light.
+        """
+        if self.failed:
+            return "failed"
+        if self.unverifiable:
+            return "unverifiable"
+        return "passed"
+
+    @property
     def ok(self) -> bool:
-        """True when nothing failed. Unverifiable items do not block."""
-        return not self.failed
+        """True only when every check ran and passed."""
+        return self.status == "passed"
+
+    @property
+    def blocked(self) -> bool:
+        """True when something definitively failed, as opposed to being undecided."""
+        return bool(self.failed)
 
     def as_dict(self) -> dict[str, Any]:
         """Structured form for JSON output."""
-        return {**asdict(self), "status": "passed" if self.ok else "failed"}
+        return {**asdict(self), "status": self.status}
 
 
 # ==== gene rule comparison ====
@@ -95,15 +115,29 @@ def canonical_gpr(rule: str) -> object:
 
 # ==== semantic comparison ====
 
+# Model content the snapshot deliberately does not compare. Annotations and notes are
+# free-form provenance that COBRApy rewrites on a round trip, so diffing them reports
+# noise on every untouched model. Naming them here is the contract: an edit to one of
+# these is not caught, and "no unrelated semantic changes" claims nothing about them.
+EXCLUDED_FROM_SNAPSHOT = ("annotation", "notes", "SBO terms", "gene names")
+
 
 def semantic_snapshot(model: cobra.Model) -> dict[str, Any]:
-    """Structured content only -- SBML layout and element order are not semantics."""
+    """Structured content only -- SBML layout and element order are not semantics.
+
+    Every field compared here is one the package promises was left alone. Anything
+    omitted can be edited without the "no unrelated semantic changes" check noticing,
+    so the omissions are deliberate and listed in EXCLUDED_FROM_SNAPSHOT rather than
+    left to be discovered.
+    """
     return {
         "reactions": {
             r.id: {
                 "stoichiometry": {m.id: c for m, c in r.metabolites.items()},
                 "bounds": list(r.bounds),
                 "gene_reaction_rule": canonical_gpr(r.gene_reaction_rule),
+                "name": r.name or "",
+                "subsystem": r.subsystem or "",
             }
             for r in model.reactions
         },
@@ -112,10 +146,13 @@ def semantic_snapshot(model: cobra.Model) -> dict[str, Any]:
                 "formula": m.formula,
                 "charge": m.charge,
                 "compartment": m.compartment,
+                "name": m.name or "",
             }
             for m in model.metabolites
         },
         "objective": str(model.objective.expression),
+        "model_id": model.id or "",
+        "compartments": dict(model.compartments),
     }
 
 
@@ -129,8 +166,9 @@ def diff_snapshots(before: dict[str, Any], after: dict[str, Any]) -> dict[str, A
         changed = sorted(k for k in set(old) & set(new) if old[k] != new[k])
         if added or removed or changed:
             diff[section] = {"added": added, "removed": removed, "changed": changed}
-    if before["objective"] != after["objective"]:
-        diff["objective"] = {"before": before["objective"], "after": after["objective"]}
+    for scalar in ("objective", "model_id", "compartments"):
+        if before.get(scalar) != after.get(scalar):
+            diff[scalar] = {"before": before.get(scalar), "after": after.get(scalar)}
     return diff
 
 
@@ -167,13 +205,21 @@ def check_candidate(
         detail=str(reaction.bounds),
     )
 
-    if request.gene_reaction_rule:
-        stored = reaction.gene_reaction_rule
-        result.record(
-            "gene rule matches request",
-            ok=canonical_gpr(stored) == canonical_gpr(request.gene_reaction_rule),
-            detail=stored,
-        )
+    # Compared unconditionally, including when the request left the field empty:
+    # a candidate that invents a gene rule, name or subsystem the requester never
+    # asked for is exactly the silent edit these checks exist to catch.
+    result.record(
+        "gene rule matches request",
+        ok=canonical_gpr(reaction.gene_reaction_rule)
+        == canonical_gpr(request.gene_reaction_rule),
+        detail=reaction.gene_reaction_rule or "(none)",
+    )
+    result.record(
+        "name matches request",
+        ok=(reaction.name or "") == request.name,
+        detail=reaction.name or "(none)",
+    )
+    result.record("subsystem matches request", **_subsystem_verdict(reaction, request))
 
     name, verdict = _balance_verdict(reaction)
     result.record(name, **verdict)
@@ -186,6 +232,28 @@ def check_candidate(
         detail=str(unrelated) if unrelated else "only the requested reaction added",
     )
     return result
+
+
+def _subsystem_verdict(
+    reaction: cobra.Reaction, request: ReactionRequest
+) -> dict[str, Any]:
+    """Subsystem survives a round trip only if the model carries subsystems at all.
+
+    This model's SBML has no subsystem annotations, so COBRApy returns "" for every
+    reaction including untouched ones. Failing a requested subsystem against that
+    would report the writer's format as a violation by the candidate. An empty stored
+    value against a requested one is undecidable, not wrong; anything else is a real
+    comparison.
+    """
+    stored = reaction.subsystem or ""
+    if stored == request.subsystem:
+        return {"ok": True, "detail": stored or "(none)"}
+    if not stored and request.subsystem:
+        return {
+            "ok": None,
+            "detail": f"not retained by this model's SBML: {request.subsystem}",
+        }
+    return {"ok": False, "detail": stored or "(none)"}
 
 
 def _balance_verdict(reaction: cobra.Reaction) -> tuple[str, dict[str, Any]]:
@@ -214,5 +282,7 @@ def _unrelated_changes(diff: dict[str, Any], reaction_id: str) -> dict[str, Any]
         "changed_reactions": reactions.get("changed", []),
         "metabolites": diff.get("metabolites", {}),
         "objective": diff.get("objective"),
+        "model_id": diff.get("model_id"),
+        "compartments": diff.get("compartments"),
     }
     return {key: value for key, value in found.items() if value}

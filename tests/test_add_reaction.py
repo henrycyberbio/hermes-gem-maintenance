@@ -279,6 +279,136 @@ def test_check_accepts_a_gene_rule_regrouped_by_sbml(
     assert not any("gene rule" in line for line in result.failed)
 
 
+# ==== review regressions ====
+
+
+def test_unverifiable_balance_is_not_reported_as_passed(
+    model: cobra.Model, request_: ReactionRequest
+) -> None:
+    # GIVEN a participant with no formula, so mass balance cannot be computed.
+    # (Regression: `ok` returned True whenever `failed` was empty, so a candidate
+    # that was never balance-checked was delivered as verified.)
+    model.metabolites.get_by_id("f6p_c").formula = None
+    candidate = model.copy()
+    add_reaction(candidate, request_)
+    # WHEN checking the candidate.
+    result = check_candidate(model, candidate, request_)
+    # THEN the verdict is a third state: not failed, but not deliverable either.
+    assert result.unverifiable
+    assert result.status == "unverifiable"
+    assert result.ok is False
+    assert result.blocked is False
+
+
+def test_check_rejects_a_name_the_request_did_not_ask_for(
+    model: cobra.Model, request_: ReactionRequest
+) -> None:
+    # GIVEN a candidate whose new reaction carries a name other than the requested one.
+    # (Regression: name and subsystem were never compared, so the delivered reaction
+    # could be labelled as anything.)
+    candidate = model.copy()
+    add_reaction(candidate, request_)
+    candidate.reactions.get_by_id("PKETF").name = "Not what was requested"
+    # WHEN checking the candidate.
+    result = check_candidate(model, candidate, request_)
+    # THEN the mismatch is a failure, not a silently accepted edit.
+    assert any("name matches request" in line for line in result.failed)
+
+
+def test_check_rejects_a_gene_rule_when_the_request_had_none(
+    model: cobra.Model, spec: dict[str, object]
+) -> None:
+    # GIVEN a request that specifies no gene rule at all.
+    # (Regression: the comparison was skipped when the request field was empty, so a
+    # candidate could invent gene associations the requester never authorised.)
+    del spec["gene_reaction_rule"]
+    request = ReactionRequest.from_dict(spec)
+    candidate = model.copy()
+    add_reaction(candidate, request)
+    candidate.reactions.get_by_id("PKETF").gene_reaction_rule = "unrequested_gene"
+    # WHEN checking the candidate.
+    result = check_candidate(model, candidate, request)
+    # THEN the invented rule fails the check.
+    assert any("gene rule matches request" in line for line in result.failed)
+
+
+def test_check_detects_an_edit_to_an_untouched_reaction_name(
+    model: cobra.Model, request_: ReactionRequest
+) -> None:
+    # GIVEN a candidate that also renames a reaction the request never mentioned.
+    # (Regression: the snapshot omitted names, so "no unrelated semantic changes"
+    # asserted something the comparison could not see.)
+    candidate = model.copy()
+    add_reaction(candidate, request_)
+    candidate.reactions.get_by_id("ACKr").name = "Silently renamed"
+    # WHEN checking the candidate.
+    result = check_candidate(model, candidate, request_)
+    # THEN the unrelated edit is reported.
+    assert any("no unrelated semantic changes" in line for line in result.failed)
+
+
+def test_subsystem_the_writer_discards_is_unverifiable_not_failed(
+    model: cobra.Model, spec: dict[str, object], tmp_path: Path
+) -> None:
+    # GIVEN a request naming a subsystem, written to a model whose SBML does not
+    # carry subsystem annotations. (Regression: comparing it as a plain equality
+    # reported the serializer's format as a violation by the candidate, which would
+    # block delivery of a correct reaction.)
+    spec["subsystem"] = "Heterologous pathway"
+    request = ReactionRequest.from_dict(spec)
+    candidate = model.copy()
+    add_reaction(candidate, request)
+    path = tmp_path / "candidate.xml"
+    write_sbml_model(candidate, str(path))
+    reloaded = read_sbml_model(str(path))
+    # WHEN checking the reloaded candidate.
+    result = check_candidate(model, reloaded, request)
+    # THEN the loss is undecidable, not a failure: nothing contradicts the request.
+    assert reloaded.reactions.get_by_id("PKETF").subsystem == ""
+    assert any("subsystem" in line for line in result.unverifiable)
+    assert not any("subsystem" in line for line in result.failed)
+
+
+def test_subsystem_changed_to_something_else_still_fails(
+    model: cobra.Model, spec: dict[str, object]
+) -> None:
+    # GIVEN a candidate whose subsystem is present but not what was requested.
+    spec["subsystem"] = "Heterologous pathway"
+    request = ReactionRequest.from_dict(spec)
+    candidate = model.copy()
+    add_reaction(candidate, request)
+    candidate.reactions.get_by_id("PKETF").subsystem = "Something else entirely"
+    # WHEN checking it.
+    result = check_candidate(model, candidate, request)
+    # THEN it fails: a stored value that disagrees is a real contradiction, and the
+    # unverifiable path must not become a way to ignore the field.
+    assert any("subsystem" in line for line in result.failed)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("metabolites", [["f6p_c", -1]]),
+        ("metabolites", "f6p_c"),
+        ("reaction_id", ""),
+        ("lower_bound", "not-a-number"),
+        ("upper_bound", float("inf")),
+        ("name", 42),
+    ],
+)
+def test_malformed_definitions_raise_structured_errors(
+    spec: dict[str, object], field: str, value: object
+) -> None:
+    # GIVEN a definition whose field has the wrong type or an unusable value.
+    # (Regression: a list of metabolites escaped as a bare AttributeError, so the
+    # documented error taxonomy did not hold at the package's own boundary.)
+    spec[field] = value
+    # WHEN building the request.
+    # THEN it fails inside the taxonomy rather than leaking a Python type error.
+    with pytest.raises((RequestViolationError, InsufficientInformationError)):
+        ReactionRequest.from_dict(spec)
+
+
 # ==== example data ====
 
 

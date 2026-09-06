@@ -249,6 +249,83 @@ def test_export_refuses_to_deliver_a_failing_candidate(
     assert not delivered.exists()
 
 
+def test_export_refuses_a_candidate_whose_checks_could_not_be_decided(
+    baseline: Path, request_file: Path, tmp_path: Path
+) -> None:
+    # GIVEN a baseline whose metabolite has no formula, so mass balance is undecidable.
+    # (Regression: export only inspected `failed`, so an unverifiable candidate was
+    # written out and reported as passed.)
+    stripped = load_model(baseline)
+    stripped.metabolites.get_by_id("a_c").formula = None
+    unverifiable_baseline = tmp_path / "no-formula.xml"
+    write_sbml_model(stripped, str(unverifiable_baseline))
+    candidate = tmp_path / "candidate.xml"
+    Cli().add_reaction(
+        model=str(unverifiable_baseline),
+        reaction=str(request_file),
+        output=str(candidate),
+    )
+    delivered = tmp_path / "delivered.xml"
+    # WHEN exporting it.
+    # THEN delivery is refused: an untested model must not ship as a verified one.
+    with pytest.raises(ValidationFailedError, match="could not be fully verified"):
+        Cli().export(
+            model=str(unverifiable_baseline),
+            candidate=str(candidate),
+            reaction=str(request_file),
+            output=str(delivered),
+        )
+    assert not delivered.exists()
+
+
+def test_check_reports_unverifiable_as_its_own_status(
+    baseline: Path, request_file: Path, tmp_path: Path
+) -> None:
+    # GIVEN the same undecidable candidate.
+    stripped = load_model(baseline)
+    stripped.metabolites.get_by_id("a_c").formula = None
+    unverifiable_baseline = tmp_path / "no-formula.xml"
+    write_sbml_model(stripped, str(unverifiable_baseline))
+    candidate = tmp_path / "candidate.xml"
+    Cli().add_reaction(
+        model=str(unverifiable_baseline),
+        reaction=str(request_file),
+        output=str(candidate),
+    )
+    # WHEN checking it.
+    payload = json.loads(
+        Cli().check(
+            model=str(unverifiable_baseline),
+            candidate=str(candidate),
+            reaction=str(request_file),
+        )
+    )
+    # THEN the caller can tell "undecided" from both "passed" and "failed".
+    assert payload["status"] == "unverifiable"
+    assert payload["failed"] == []
+    assert payload["unverifiable"]
+
+
+def test_malformed_definition_becomes_a_structured_error(
+    baseline: Path, request_file: Path, tmp_path: Path
+) -> None:
+    # GIVEN a definition whose metabolites are a list rather than an object.
+    # (Regression: this escaped the CLI as a bare AttributeError, so the documented
+    # error taxonomy did not hold for hand-written input.)
+    malformed = json.loads(request_file.read_text(encoding="utf-8"))
+    malformed["metabolites"] = [["a_c", -1], ["b_c", 1]]
+    request_file.write_text(json.dumps(malformed), encoding="utf-8")
+    # WHEN adding the reaction.
+    # THEN it fails inside the taxonomy, carrying a category the agent can act on.
+    with pytest.raises(RequestViolationError) as caught:
+        Cli().add_reaction(
+            model=str(baseline),
+            reaction=str(request_file),
+            output=str(tmp_path / "candidate.xml"),
+        )
+    assert caught.value.as_dict()["category"] == "request_violation"
+
+
 def test_export_reports_a_failing_candidate_as_distinct_from_a_damaged_baseline(
     baseline: Path, request_file: Path, tmp_path: Path
 ) -> None:

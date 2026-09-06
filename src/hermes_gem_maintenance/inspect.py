@@ -153,16 +153,23 @@ def _classify(
 def unique_match(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
     """The one candidate a caller may act on, or None when the query is ambiguous.
 
-    A single exact match settles the query even when weaker kinds also matched:
-    `pi_c` hits exactly one identifier and several substrings, and treating that as
-    ambiguous would block every short identifier. Two exact matches is real
-    ambiguity -- the same name in two compartments -- and returns None.
+    Uniqueness is decided by the *strongest kind of evidence present*, never by the
+    total number of candidates.
 
-    A vague query is not settled by one exact hit buried in a crowd. `phosphate`
-    matches one metabolite named exactly "Phosphate" and 165 others; answering `pi_c`
-    would hand the caller a confident mapping for a word that plainly did not
-    identify one metabolite. Above WEAK_MATCH_CEILING weak matches, the caller is
-    told to narrow the query instead.
+    An identifier is unique within a model by construction, so a query matching one
+    exactly has identified that metabolite -- however many other identifiers happen to
+    contain it as a substring. `g3p_c` names exactly one metabolite while appearing
+    inside sixteen others, and letting that crowd overrule the exact hit made six
+    legitimate identifiers unresolvable.
+
+    Names and formulae are not unique by construction, so they stay subject to the
+    crowd test: `phosphate` matches one metabolite named exactly "Phosphate" and 165
+    others, and a word that vague described a class rather than a metabolite. Two
+    exact matches of any kind is real ambiguity -- normally one species in several
+    compartments -- and the caller must narrow by compartment.
+
+    A query matching only substrings settles nothing unless there is exactly one, and
+    nothing at all once the crowd exceeds WEAK_MATCH_CEILING.
 
     This is the only definition of "unambiguous" in the package. Callers that need a
     verdict use it; reimplementing the rule as `len(candidates) == 1` disagrees with
@@ -170,13 +177,19 @@ def unique_match(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
     """
     if not candidates:
         return None
-    exact = [c for c in candidates if c["matched_on"] in _EXACT_LABELS]
-    if len(candidates) - len(exact) > WEAK_MATCH_CEILING:
-        return None
-    if len(exact) == 1:
-        return exact[0]
-    if len(candidates) == 1:
-        return candidates[0]
+
+    weak = [c for c in candidates if c["matched_on"] not in _EXACT_LABELS]
+    crowded = len(weak) > WEAK_MATCH_CEILING
+
+    for kind in MATCH_KINDS:
+        tier = [c for c in candidates if c["matched_on"] == kind.label]
+        if not tier:
+            continue
+        if len(tier) > 1:
+            return None
+        if kind.field == "id" and kind.exact:
+            return tier[0]
+        return None if crowded else tier[0]
     return None
 
 

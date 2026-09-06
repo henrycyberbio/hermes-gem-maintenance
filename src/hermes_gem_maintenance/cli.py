@@ -132,7 +132,9 @@ class Cli:
         """Re-check a candidate and write the deliverable only if it passes.
 
         The re-check is the point: a candidate is validated again, as loaded from
-        disk, immediately before delivery.
+        disk, immediately before delivery. A candidate whose checks could not be
+        decided is refused too -- delivering it would present an untested model as a
+        verified one.
 
         Args:
             model: Path to the baseline SBML model.
@@ -147,7 +149,11 @@ class Cli:
         loaded_candidate = load_model(Path(candidate))
         result = check_candidate(load_model(baseline), loaded_candidate, request)
         if not result.ok:
-            msg = "candidate failed re-validation; no deliverable written"
+            msg = (
+                "candidate failed re-validation; no deliverable written"
+                if result.blocked
+                else "candidate could not be fully verified; no deliverable written"
+            )
             raise ValidationFailedError(msg, **result.as_dict())
 
         written = save_candidate(loaded_candidate, Path(output), protected=baseline)

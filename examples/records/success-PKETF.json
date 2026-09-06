@@ -12,6 +12,8 @@
       "stoichiometry matches request: {'f6p_c': -1.0, 'pi_c': -1.0, 'actp_c': 1.0, 'e4p_c': 1.0, 'h2o_c': 1.0}",
       "bounds match request: (0.0, 1000.0)",
       "gene rule matches request: xfp",
+      "name matches request: Phosphoketolase (fructose-6-phosphate utilizing)",
+      "subsystem matches request: (none)",
       "mass and charge balance: balanced",
       "no unrelated semantic changes: only the requested reaction added"
     ],

@@ -136,8 +136,13 @@ Only a genuine conflict or a genuine gap goes back to the user.
   parentheses, so `(A and B) and C` comes back as `A and B and C`. That is not a
   change, and the package will not report it as one.
 - **A balance verdict of "unverifiable" is not a pass.** When a participant lacks
-  formula or charge, conservation cannot be checked. Say so; do not present the
-  change as verified.
+  formula or charge, conservation cannot be checked. `check` reports
+  `status: "unverifiable"` — its own state, distinct from both `passed` and
+  `failed` — and `export` refuses to deliver. Say so; do not present the change as
+  verified.
+- **An exact identifier resolves regardless of how many others contain it.**
+  `g3p_c` names one metabolite and appears inside sixteen more; the crowd is noise.
+  Vague *names* are a different matter — see the crowd rule below.
 - **The output path must not exist.** Both `add_reaction` and `export` refuse an
   existing file rather than overwrite evidence. Use a new path per attempt.
 - **Zero candidates usually means the query wording, not an absent metabolite.**
@@ -146,9 +151,10 @@ Only a genuine conflict or a genuine gap goes back to the user.
   naturally types it — returns nothing at all. Some names are unusable outright:
   BiGG stores water as `H2O H2O`. An empty result is the most dangerous one, because
   it reads as "not in this model" and invites inventing the metabolite. Retry with a
-  shorter fragment, then with the molecular formula (`H2O` finds `h2o_c`), then with
-  the suspected identifier, and drop `--compartment`. Confirm absence with
-  `inspect --metabolite=ID`.
+  shorter fragment, then with the molecular formula (`H2O --compartment=c` finds
+  `h2o_c`; without a compartment the same formula matches water in all three and
+  resolves to nothing), then with the suspected identifier, and drop `--compartment`.
+  Confirm absence with `inspect --metabolite=ID`.
 - **A crowd of matches is not a resolution.** `resolve --query=phosphate` returns 166
   candidates and `resolved_id: null`, even though one is named exactly "Phosphate".
   A word that vague did not identify a metabolite. Narrow it: re-run `resolve` with
