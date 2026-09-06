@@ -11,7 +11,7 @@ dependencies = [
 ]
 
 [project.scripts]
-hermes-gem-maintenance = "hermes_gem_maintenance:main"
+hermes-gem-maintenance = "hermes_gem_maintenance.cli:main"
 
 [dependency-groups]
 dev = [
