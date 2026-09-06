@@ -16,9 +16,11 @@ when to ask rather than assume. Source models are immutable; every operation rea
 the original or writes an independent copy.
 
 **Status:** the package and CLI are working and tested against the frozen model. The
-skill in `skills/gem-maintenance/` drives them from a natural-language request; an
-agent given only the request and that skill reproduces the worked example
-byte-for-byte.
+skill in `skills/gem-maintenance/` drives them from a natural-language request. It has
+been exercised by agents given only the request and the skill — no access to the
+source, tests, or worked answer — on the successful case, on two requests it should
+refuse, and on one it should correct before completing; see
+[`examples/scenarios/`](examples/scenarios/).
 
 ## Use
 
@@ -64,8 +66,9 @@ Errors carry a category so a caller can tell them apart without parsing prose:
 
 See [`examples/add-reaction/`](examples/add-reaction/) for the request and its
 evidence, [`examples/scenarios/`](examples/scenarios/) for requests the workflow is
-expected to refuse, and [`docs/case-selection.md`](docs/case-selection.md) for why
-this case was chosen.
+expected to refuse or correct, [`examples/records/`](examples/records/) for the CLI
+output each one produces, and [`docs/case-selection.md`](docs/case-selection.md) for
+why this case was chosen.
 
 Regenerate the citation list after editing `docs/references.json`:
 
@@ -88,7 +91,8 @@ uvx ruff check .
 | `skills/gem-maintenance/` | Hermes skill driving the CLI from a request |
 | `scripts/` | Walkthrough and citation renderer |
 | `examples/add-reaction/` | Frozen model, reaction definition, evidence |
-| `examples/scenarios/` | Requests the workflow should refuse |
+| `examples/scenarios/` | Requests the workflow should refuse or correct |
+| `examples/records/` | Recorded CLI output for the example and scenarios |
 | `docs/` | Case selection, reference data, citation style |
 | `instructions/` | Code standards for this repository |
 | `tests/` | Behaviour checks |

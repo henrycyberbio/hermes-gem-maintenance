@@ -1,0 +1,60 @@
+{
+  "as_written": {
+    "definition": {
+      "reaction_id": "PKETX",
+      "metabolites": {
+        "xu5p__D_c": -1,
+        "pi_c": -1,
+        "actp_c": 1,
+        "g3p_c": 1
+      },
+      "lower_bound": 0.0,
+      "upper_bound": 1000.0,
+      "gene_reaction_rule": "xfp"
+    },
+    "check": {
+      "failed": [
+        "mass and charge balance: {'H': -2.0, 'O': -1.0}"
+      ],
+      "passed": [
+        "reaction present: PKETX",
+        "stoichiometry matches request: {'xu5p__D_c': -1.0, 'pi_c': -1.0, 'actp_c': 1.0, 'g3p_c': 1.0}",
+        "bounds match request: (0.0, 1000.0)",
+        "gene rule matches request: xfp",
+        "no unrelated semantic changes: only the requested reaction added"
+      ],
+      "reaction_id": "PKETX",
+      "status": "failed",
+      "unverifiable": []
+    }
+  },
+  "corrected": {
+    "definition": {
+      "reaction_id": "PKETX",
+      "metabolites": {
+        "xu5p__D_c": -1,
+        "pi_c": -1,
+        "actp_c": 1,
+        "g3p_c": 1,
+        "h2o_c": 1
+      },
+      "lower_bound": 0.0,
+      "upper_bound": 1000.0,
+      "gene_reaction_rule": "xfp"
+    },
+    "check": {
+      "failed": [],
+      "passed": [
+        "reaction present: PKETX",
+        "stoichiometry matches request: {'xu5p__D_c': -1.0, 'pi_c': -1.0, 'actp_c': 1.0, 'g3p_c': 1.0, 'h2o_c': 1.0}",
+        "bounds match request: (0.0, 1000.0)",
+        "gene rule matches request: xfp",
+        "mass and charge balance: balanced",
+        "no unrelated semantic changes: only the requested reaction added"
+      ],
+      "reaction_id": "PKETX",
+      "status": "passed",
+      "unverifiable": []
+    }
+  }
+}

@@ -173,3 +173,11 @@ Before reporting success: `export` returned `status: "passed"`, the delivered fi
 exists at the path you name, the baseline digest is unchanged, and every claim you
 make appears in the JSON you actually received. Report the checks that were
 unverifiable alongside the ones that passed.
+
+## Attribution
+
+A modified model is a scientific artifact. When you report one, cite the source of
+the model and the source of the biology you added — the requester needs to know what
+the change rests on, and a reaction added without a citation is an assertion. The
+repository's `CITATIONS.md` holds the entries for the models and tools used here;
+evidence for a specific reaction comes from the request or the literature it names.

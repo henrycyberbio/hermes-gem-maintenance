@@ -1,0 +1,16 @@
+{
+  "bounds": [
+    -1000.0,
+    1000.0
+  ],
+  "gene_reaction_rule": "Y7U_RS16155 or Y7U_RS12030 or Y7U_RS09710",
+  "id": "ACKr",
+  "name": "Acetate kinase",
+  "stoichiometry": {
+    "ac_c": -1.0,
+    "actp_c": 1.0,
+    "adp_c": 1.0,
+    "atp_c": -1.0
+  },
+  "subsystem": ""
+}

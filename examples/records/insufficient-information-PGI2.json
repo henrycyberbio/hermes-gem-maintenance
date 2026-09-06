@@ -1,0 +1,68 @@
+{
+  "D-Glucose 6-phosphate": {
+    "candidates": [
+      {
+        "charge": 0,
+        "compartment": "c",
+        "formula": "C6H11O9P",
+        "id": "g6p_c",
+        "matched_on": "exact name",
+        "name": "D-Glucose 6-phosphate"
+      },
+      {
+        "charge": 0,
+        "compartment": "e",
+        "formula": "C6H11O9P",
+        "id": "g6p_e",
+        "matched_on": "exact name",
+        "name": "D-Glucose 6-phosphate"
+      },
+      {
+        "charge": 0,
+        "compartment": "p",
+        "formula": "C6H11O9P",
+        "id": "g6p_p",
+        "matched_on": "exact name",
+        "name": "D-Glucose 6-phosphate"
+      }
+    ],
+    "compartment": null,
+    "count": 3,
+    "query": "D-Glucose 6-phosphate",
+    "resolved_id": null,
+    "unambiguous": false
+  },
+  "D-Fructose 6-phosphate": {
+    "candidates": [
+      {
+        "charge": 0,
+        "compartment": "c",
+        "formula": "C6H11O9P",
+        "id": "f6p_c",
+        "matched_on": "exact name",
+        "name": "D-Fructose 6-phosphate"
+      },
+      {
+        "charge": 0,
+        "compartment": "e",
+        "formula": "C6H11O9P",
+        "id": "f6p_e",
+        "matched_on": "exact name",
+        "name": "D-Fructose 6-phosphate"
+      },
+      {
+        "charge": 0,
+        "compartment": "p",
+        "formula": "C6H11O9P",
+        "id": "f6p_p",
+        "matched_on": "exact name",
+        "name": "D-Fructose 6-phosphate"
+      }
+    ],
+    "compartment": null,
+    "count": 3,
+    "query": "D-Fructose 6-phosphate",
+    "resolved_id": null,
+    "unambiguous": false
+  }
+}
