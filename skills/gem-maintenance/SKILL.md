@@ -89,8 +89,33 @@ for three different responses:
 
 A failing `check` is not an exception — it returns `status: "failed"` with the reason
 in `failed`. Read the entry: a balance failure reports the element deltas, so
-`{'H': -2.0, 'O': -1.0}` means the reaction is short exactly one water, which is a
-concrete correction rather than a mystery.
+`{'H': -2.0, 'O': -1.0}` means the reaction is short exactly one water.
+
+**When a balance failure may be corrected without asking.** Element deltas that
+account for whole units of a single ubiquitous species — water, a proton — which
+already exists in the model in the required compartment, are an omission in the
+request's prose, not a biological decision. Add the species, re-check, and state the
+addition prominently in your report as a deviation from what was written. Requesters
+describe reactions the way biochemists write them, leaving water and protons implicit;
+stalling on every such request is not caution, it is a broken tool.
+
+**The sign of the delta fixes which side it goes on.** The delta is computed over the
+whole reaction, so a *negative* delta means the products are short and the species
+takes a *positive* coefficient; a *positive* delta means the reactants are short and
+the coefficient is negative. `{'H': -2.0, 'O': -1.0}` therefore calls for `h2o_c: 1`,
+not `h2o_c: -1`. Guessing the side is not harmless: putting that water on the wrong
+side reports `{'H': -4.0, 'O': -2.0}` — the deficit doubles instead of clearing, which
+is itself the signal that the sign was inverted. Re-check after every correction and
+read the new delta rather than assuming the fix worked.
+
+**When it must not.** Deltas that do not resolve to whole units of one species, that
+imply a metabolite absent from the compartment, or that would change a carbon
+skeleton are a genuine conflict. Stop and report the deltas — guessing at a
+stoichiometry the requester did not write is inventing biology, and the fact that a
+number can be made to balance is not evidence it is correct.
+
+The line is whether arithmetic forces exactly one answer. One missing H2O is forced.
+A carbon imbalance is not.
 
 Before reporting a failure to the requester, work out whether it was your mistake or
 theirs. A coefficient you transcribed wrong, a compartment suffix you dropped, an
@@ -132,6 +157,12 @@ Only a genuine conflict or a genuine gap goes back to the user.
 - **Several exact matches in different compartments is ambiguity, not a ranking
   problem.** `resolve` returning `f6p_c` and `f6p_p` means the request did not say
   which compartment. Ask.
+- **Stereochemistry is a second axis of ambiguity, and it hides inside a name.**
+  A request naming "xylulose-5-phosphate" does not distinguish `xu5p__D_c` from
+  `xu5p__L_c`, and both are real cytosolic metabolites with different biology.
+  Picking the common one because it is common is inventing biology. The same applies
+  to any D-/L-, alpha-/beta-, or cis-/trans- pair: if the model carries both and the
+  request names neither, ask.
 - **A reversible database entry is not a decision.** When a source records a reaction
   as reversible and the request implies one direction, surface the discrepancy
   instead of settling it silently.

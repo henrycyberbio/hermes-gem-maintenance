@@ -154,8 +154,8 @@ uv run hermes-gem-maintenance add_reaction --model=MODEL --reaction=SPEC.json --
 {
   "baseline_sha256": "109290d2e2407a94f8088f9ef9fd40f6db6b73b1cf36574d6d987527ece8d9b7",
   "candidate": "c.xml",
-  "candidate_sha256": "28833db135078ad5ffcdf668bd8c078aeaf5cfb0cd9529682a7110443fabdf72",
-  "reaction_id": "PKETX"
+  "candidate_sha256": "8083404ad9f555300e44379aead00744b48715d4f24f8a876226bde923ac1f34",
+  "reaction_id": "DEMO_ATPH"
 }
 ```
 
@@ -171,15 +171,15 @@ uv run hermes-gem-maintenance check --model=MODEL --candidate=CAND.xml --reactio
 
 ```json
 {
-  "reaction_id": "PKETX",
+  "reaction_id": "DEMO_ATPH",
   "status": "passed",
   "failed": [],
   "unverifiable": [],
   "passed": [
-    "reaction present: PKETX",
-    "stoichiometry matches request: {'xu5p__D_c': -1.0, 'pi_c': -1.0, 'actp_c': 1.0, 'g3p_c': 1.0, 'h2o_c': 1.0}",
+    "reaction present: DEMO_ATPH",
+    "stoichiometry matches request: {'atp_c': -1.0, 'h2o_c': -1.0, 'adp_c': 1.0, 'pi_c': 1.0, 'h_c': 1.0}",
     "bounds match request: (0.0, 1000.0)",
-    "gene rule matches request: xfp",
+    "gene rule matches request: demoGene",
     "mass and charge balance: balanced",
     "no unrelated semantic changes: only the requested reaction added"
   ]
@@ -193,7 +193,10 @@ A failing check exits 0 with `status: "failed"` — it is a verdict, not an erro
 {"failed": ["mass and charge balance: {'H': -2.0, 'O': -1.0}"], "status": "failed"}
 ```
 
-Those deltas are the correction: the reaction is short one water.
+Those deltas name the missing species and its side: the reaction is short one water,
+and the negative sign means it belongs among the products (`h2o_c: 1`). A delta is
+not a licence to add whatever balances the numbers — SKILL.md sets out when a
+correction may be made without asking.
 
 Entries under `unverifiable` did not fail — they could not be decided. A balance
 check reports `missing formula/charge: <ids>` when a participant lacks the metadata.
@@ -213,7 +216,7 @@ the full check result. On failure nothing is written:
 {
   "category": "validation_failed",
   "message": "candidate failed re-validation; no deliverable written",
-  "failed": ["reaction present: PKETX missing"],
+  "failed": ["reaction present: DEMO_ATPH missing"],
   "passed": [],
   "status": "failed"
 }
@@ -229,7 +232,7 @@ Errors print to stderr as JSON and exit 1.
 | Category | Example message | Context fields |
 | --- | --- | --- |
 | `insufficient_information` | `reaction definition is missing: lower_bound, upper_bound` | `missing`, or `query`/`candidates` for an ambiguous name |
-| `request_violation` | `reaction ACKr already exists in the model` | `reaction_id`, `metabolites` |
+| `request_violation` | `reaction <ID> already exists in the model` | `reaction_id`, `metabolites` |
 | `validation_failed` | `candidate failed re-validation; no deliverable written` | `passed`, `failed`, `unverifiable`, `status` |
 | `model_integrity` | `candidate path already exists` | `path`, or `expected`/`actual` for a digest mismatch |
 

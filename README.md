@@ -63,8 +63,9 @@ Errors carry a category so a caller can tell them apart without parsing prose:
 | `model_integrity` | A baseline digest mismatch, or a write would clobber it | Stop; the inputs are not what they claim |
 
 See [`examples/add-reaction/`](examples/add-reaction/) for the request and its
-evidence, and [`docs/case-selection.md`](docs/case-selection.md) for why this case
-was chosen.
+evidence, [`examples/scenarios/`](examples/scenarios/) for requests the workflow is
+expected to refuse, and [`docs/case-selection.md`](docs/case-selection.md) for why
+this case was chosen.
 
 Regenerate the citation list after editing `docs/references.json`:
 
@@ -87,6 +88,7 @@ uvx ruff check .
 | `skills/gem-maintenance/` | Hermes skill driving the CLI from a request |
 | `scripts/` | Walkthrough and citation renderer |
 | `examples/add-reaction/` | Frozen model, reaction definition, evidence |
+| `examples/scenarios/` | Requests the workflow should refuse |
 | `docs/` | Case selection, reference data, citation style |
 | `instructions/` | Code standards for this repository |
 | `tests/` | Behaviour checks |
