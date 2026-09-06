@@ -20,7 +20,8 @@ from hermes_gem_maintenance.errors import (
     RequestViolationError,
     ValidationFailedError,
 )
-from hermes_gem_maintenance.model_io import file_digest
+from hermes_gem_maintenance.inspect import require_unique_metabolite
+from hermes_gem_maintenance.model_io import file_digest, load_model
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -32,10 +33,26 @@ if TYPE_CHECKING:
 def baseline(tmp_path: Path) -> Path:
     """A small SBML model on disk, standing in for the frozen input."""
     model = cobra.Model("toy")
-    model.compartments = {"c": "cytosol"}
-    for mid, formula in [("a_c", "C6H11O9P"), ("b_c", "C6H11O9P")]:
+    model.compartments = {"c": "cytosol", "p": "periplasm"}
+    # aa_c contains a_c, and one name is shared across compartments: the two shapes
+    # that separate "weaker matches also hit" from "genuinely ambiguous".
+    specs = [
+        ("a_c", "c", "Alpha", "C6H11O9P"),
+        ("aa_c", "c", "Double alpha", "C6H11O9P"),
+        ("b_c", "c", "Beta", "C6H11O9P"),
+        ("b_p", "p", "Beta", "C6H11O9P"),
+    ]
+    for mid, compartment, name, formula in specs:
         model.add_metabolites(
-            [cobra.Metabolite(mid, formula=formula, charge=0, compartment="c")]
+            [
+                cobra.Metabolite(
+                    mid,
+                    name=name,
+                    formula=formula,
+                    charge=0,
+                    compartment=compartment,
+                )
+            ]
         )
     existing = cobra.Reaction("EXIST", lower_bound=0.0, upper_bound=1000.0)
     model.add_reactions([existing])
@@ -75,13 +92,41 @@ def test_inspect_reports_absence_rather_than_failing(baseline: Path) -> None:
     assert payload == {"absent": "NOPE", "kind": "reaction"}
 
 
-def test_resolve_marks_a_single_match_unambiguous(baseline: Path) -> None:
-    # GIVEN a query matching exactly one metabolite.
+def test_resolve_settles_an_exact_identifier_despite_weaker_matches(
+    baseline: Path,
+) -> None:
+    # GIVEN a query that hits one identifier exactly and another as a substring.
     # WHEN resolving it.
     payload = json.loads(Cli().resolve(model=str(baseline), query="a_c"))
-    # THEN the caller is told it is safe to proceed without asking.
+    # THEN the exact hit settles the query. Reporting this as ambiguous because more
+    # than one candidate came back would block every short identifier.
+    assert payload["count"] > 1
     assert payload["unambiguous"] is True
-    assert payload["candidates"][0]["id"] == "a_c"
+    assert payload["resolved_id"] == "a_c"
+
+
+def test_resolve_refuses_a_name_shared_across_compartments(baseline: Path) -> None:
+    # GIVEN a name carried by metabolites in two compartments.
+    # WHEN resolving it.
+    payload = json.loads(Cli().resolve(model=str(baseline), query="Beta"))
+    # THEN no winner is offered: the request never said which compartment.
+    assert payload["unambiguous"] is False
+    assert payload["resolved_id"] is None
+
+
+def test_resolve_agrees_with_the_library_verdict(baseline: Path) -> None:
+    # GIVEN queries spanning both shapes: exact-plus-noise, and true ambiguity.
+    loaded = load_model(baseline)
+    # WHEN each is judged by the CLI and by require_unique_metabolite.
+    for query in ("a_c", "Beta", "b_p"):
+        payload = json.loads(Cli().resolve(model=str(baseline), query=query))
+        try:
+            expected = require_unique_metabolite(loaded, query)["id"]
+        except InsufficientInformationError:
+            expected = None
+        # THEN they never disagree. Two definitions of "unambiguous" in one package
+        # means the CLI tells an agent to ask a question the API would not have asked.
+        assert payload["resolved_id"] == expected, query
 
 
 # ==== add-reaction ====

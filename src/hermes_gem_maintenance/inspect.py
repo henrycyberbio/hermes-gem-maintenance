@@ -29,12 +29,23 @@ class MatchKind:
 MATCH_KINDS: tuple[MatchKind, ...] = (
     MatchKind("exact identifier", "id", exact=True),
     MatchKind("exact name", "name", exact=True),
+    # Formula ranks above substring kinds: an exact formula is stronger evidence of
+    # identity than a fragment of a name. It is the only way to reach a metabolite
+    # whose name is unusable -- BiGG stores water as "H2O H2O", so no natural name
+    # query finds it, and without this a caller must guess an identifier.
+    MatchKind("exact formula", "formula", exact=True),
     MatchKind("identifier substring", "id", exact=False),
     MatchKind("name substring", "name", exact=False),
 )
 
 _MATCH_RANK = {kind.label: rank for rank, kind in enumerate(MATCH_KINDS)}
 _EXACT_LABELS = frozenset(kind.label for kind in MATCH_KINDS if kind.exact)
+
+# How many weak (substring) matches may sit beside an exact hit before the query is
+# treated as too vague to have identified anything. A handful of near-misses is
+# normal for a short identifier; a crowd means the caller described a class of
+# metabolites rather than one.
+WEAK_MATCH_CEILING = 12
 
 
 # ==== summaries ====
@@ -104,7 +115,9 @@ def resolve_metabolite(
     for metabolite in model.metabolites:
         if compartment and metabolite.compartment != compartment:
             continue
-        match = _classify(needle, metabolite.id, metabolite.name or "")
+        match = _classify(
+            needle, metabolite.id, metabolite.name or "", metabolite.formula or ""
+        )
         if match is None:
             continue
         candidates.append(
@@ -122,12 +135,48 @@ def resolve_metabolite(
     return candidates
 
 
-def _classify(needle: str, identifier: str, name: str) -> MatchKind | None:
+def _classify(
+    needle: str, identifier: str, name: str, formula: str
+) -> MatchKind | None:
     """Strongest match kind between the query and one metabolite, or None."""
-    haystack = {"id": identifier.lower(), "name": name.lower()}
+    haystack = {
+        "id": identifier.lower(),
+        "name": name.lower(),
+        "formula": formula.lower(),
+    }
     for kind in MATCH_KINDS:
-        if kind.matches(needle, haystack[kind.field]):
+        if haystack[kind.field] and kind.matches(needle, haystack[kind.field]):
             return kind
+    return None
+
+
+def unique_match(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The one candidate a caller may act on, or None when the query is ambiguous.
+
+    A single exact match settles the query even when weaker kinds also matched:
+    `pi_c` hits exactly one identifier and several substrings, and treating that as
+    ambiguous would block every short identifier. Two exact matches is real
+    ambiguity -- the same name in two compartments -- and returns None.
+
+    A vague query is not settled by one exact hit buried in a crowd. `phosphate`
+    matches one metabolite named exactly "Phosphate" and 165 others; answering `pi_c`
+    would hand the caller a confident mapping for a word that plainly did not
+    identify one metabolite. Above WEAK_MATCH_CEILING weak matches, the caller is
+    told to narrow the query instead.
+
+    This is the only definition of "unambiguous" in the package. Callers that need a
+    verdict use it; reimplementing the rule as `len(candidates) == 1` disagrees with
+    it and reports a resolvable query as ambiguous.
+    """
+    if not candidates:
+        return None
+    exact = [c for c in candidates if c["matched_on"] in _EXACT_LABELS]
+    if len(candidates) - len(exact) > WEAK_MATCH_CEILING:
+        return None
+    if len(exact) == 1:
+        return exact[0]
+    if len(candidates) == 1:
+        return candidates[0]
     return None
 
 
@@ -142,11 +191,9 @@ def require_unique_metabolite(
         msg = f"no metabolite matches {query!r}"
         raise InsufficientInformationError(msg, query=query, compartment=compartment)
 
-    exact = [c for c in candidates if c["matched_on"] in _EXACT_LABELS]
-    if len(exact) == 1:
-        return exact[0]
-    if len(candidates) == 1:
-        return candidates[0]
+    match = unique_match(candidates)
+    if match is not None:
+        return match
 
     msg = f"{query!r} matches {len(candidates)} metabolites; specify which"
     raise InsufficientInformationError(

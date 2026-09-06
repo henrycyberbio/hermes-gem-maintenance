@@ -22,6 +22,7 @@ from hermes_gem_maintenance.inspect import (
     describe_reaction,
     resolve_metabolite,
     summarize,
+    unique_match,
 )
 from hermes_gem_maintenance.model_io import (
     file_digest,
@@ -75,13 +76,15 @@ class Cli:
         """
         loaded = load_model(Path(model))
         candidates = resolve_metabolite(loaded, query, compartment or None)
+        settled = unique_match(candidates)
         return _emit(
             {
                 "query": query,
                 "compartment": compartment or None,
                 "count": len(candidates),
                 "candidates": candidates,
-                "unambiguous": len(candidates) == 1,
+                "unambiguous": settled is not None,
+                "resolved_id": settled["id"] if settled else None,
             }
         )
 

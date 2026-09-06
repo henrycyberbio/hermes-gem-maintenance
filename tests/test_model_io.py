@@ -21,6 +21,7 @@ from hermes_gem_maintenance.errors import (
     InsufficientInformationError,
     ModelIntegrityError,
 )
+from hermes_gem_maintenance.inspect import WEAK_MATCH_CEILING
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -151,6 +152,37 @@ def test_require_unique_ignores_substring_noise_around_an_exact_identifier(
     # THEN the exact hit wins: a weaker match kind is noise, not ambiguity, and
     # treating it as ambiguity would block every query with a shorter identifier.
     assert require_unique_metabolite(model, "pi_c")["id"] == "pi_c"
+
+
+def test_resolve_reaches_a_metabolite_by_formula(model: cobra.Model) -> None:
+    # GIVEN a metabolite whose name no natural query would find. BiGG stores water
+    # as "H2O H2O", so name matching cannot reach it.
+    model.add_metabolites(
+        [cobra.Metabolite("h2o_c", name="H2O H2O", formula="H2O", charge=0,
+                          compartment="c")]
+    )
+    # WHEN resolving by formula.
+    match = require_unique_metabolite(model, "H2O")
+    # THEN it resolves. Without this the caller must guess an identifier, which is
+    # exactly what the workflow forbids.
+    assert match["id"] == "h2o_c"
+    assert match["matched_on"] == "exact formula"
+
+
+def test_resolve_refuses_a_vague_query_despite_one_exact_hit(
+    model: cobra.Model,
+) -> None:
+    # GIVEN a word that names one metabolite exactly and appears in many others.
+    for index in range(WEAK_MATCH_CEILING + 2):
+        model.add_metabolites(
+            [cobra.Metabolite(f"x{index}_c", name=f"Phosphate carrier {index}",
+                              formula="HO4P", charge=0, compartment="c")]
+        )
+    # WHEN demanding a unique match for the bare word.
+    # THEN it refuses. One exact hit inside a crowd of 14 is not identification, and
+    # answering confidently would hand the caller a mapping they never asked for.
+    with pytest.raises(InsufficientInformationError):
+        require_unique_metabolite(model, "Phosphate")
 
 
 # ==== write guards ====

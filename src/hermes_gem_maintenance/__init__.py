@@ -27,6 +27,7 @@ from hermes_gem_maintenance.inspect import (
     require_unique_metabolite,
     resolve_metabolite,
     summarize,
+    unique_match,
 )
 from hermes_gem_maintenance.model_io import (
     file_digest,
@@ -56,5 +57,6 @@ __all__ = [
     "save_candidate",
     "semantic_snapshot",
     "summarize",
+    "unique_match",
     "verify_digest",
 ]
