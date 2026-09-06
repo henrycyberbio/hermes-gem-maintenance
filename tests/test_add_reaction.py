@@ -218,7 +218,7 @@ def test_check_detects_changes_beyond_the_request(
     result = check_candidate(model, candidate, request_)
     # THEN the collateral edit is reported; only the requested change is acceptable.
     assert not result.ok
-    assert any("unrelated" in line for line in result.failed)
+    assert any("exactly the requested addition" in line for line in result.failed)
 
 
 # ==== gene rule comparison ====
@@ -336,7 +336,7 @@ def test_check_detects_an_edit_to_an_untouched_reaction_name(
     model: cobra.Model, request_: ReactionRequest
 ) -> None:
     # GIVEN a candidate that also renames a reaction the request never mentioned.
-    # (Regression: the snapshot omitted names, so "no unrelated semantic changes"
+    # (Regression: the snapshot omitted names, so the "nothing else changed" claim
     # asserted something the comparison could not see.)
     candidate = model.copy()
     add_reaction(candidate, request_)
@@ -344,7 +344,7 @@ def test_check_detects_an_edit_to_an_untouched_reaction_name(
     # WHEN checking the candidate.
     result = check_candidate(model, candidate, request_)
     # THEN the unrelated edit is reported.
-    assert any("no unrelated semantic changes" in line for line in result.failed)
+    assert any("exactly the requested addition" in line for line in result.failed)
 
 
 def test_subsystem_the_writer_discards_is_unverifiable_not_failed(
@@ -407,6 +407,64 @@ def test_malformed_definitions_raise_structured_errors(
     # THEN it fails inside the taxonomy rather than leaking a Python type error.
     with pytest.raises((RequestViolationError, InsufficientInformationError)):
         ReactionRequest.from_dict(spec)
+
+
+def test_check_rejects_a_candidate_that_added_nothing(
+    model: cobra.Model, request_: ReactionRequest
+) -> None:
+    # GIVEN a baseline that already contains the requested reaction, and a candidate
+    # that is an unchanged copy of it. (Regression: `check` only asked whether the
+    # reaction was present in the candidate, so a copy that added nothing passed
+    # every check and reported "only the requested reaction added". `check` and
+    # `export` are public entry points and cannot assume `add_reaction` ran first.)
+    seeded = model.copy()
+    add_reaction(seeded, request_)
+    candidate = seeded.copy()
+    # WHEN checking it against that baseline.
+    result = check_candidate(seeded, candidate, request_)
+    # THEN it fails: the operation is "add", so presence in the baseline is a
+    # contradiction, not a success.
+    assert not result.ok
+    assert any("absent from baseline" in line for line in result.failed)
+
+
+def test_check_rejects_an_extra_reaction_alongside_the_requested_one(
+    model: cobra.Model, request_: ReactionRequest
+) -> None:
+    # GIVEN a candidate that adds the requested reaction and one extra reaction.
+    candidate = model.copy()
+    add_reaction(candidate, request_)
+    extra = cobra.Reaction("SNEAKY", lower_bound=0.0, upper_bound=1000.0)
+    candidate.add_reactions([extra])
+    extra.add_metabolites({candidate.metabolites.get_by_id("h2o_c"): -1})
+    # WHEN checking it.
+    result = check_candidate(model, candidate, request_)
+    # THEN the extra addition fails the invariant.
+    assert any("exactly the requested addition" in line for line in result.failed)
+
+
+def test_malformed_gene_rule_is_a_request_violation(
+    spec: dict[str, object],
+) -> None:
+    # GIVEN a gene rule that is not a parsable boolean expression.
+    # (Regression: COBRApy's setter logs a traceback and stores an empty rule, so the
+    # package built a candidate whose gene association had silently vanished and only
+    # failed later as a validation error -- blaming the candidate for a syntax error
+    # in the request.)
+    spec["gene_reaction_rule"] = "geneA and"
+    # WHEN building the request.
+    # THEN it is refused at the boundary, in the right category.
+    with pytest.raises(RequestViolationError, match="parsable"):
+        ReactionRequest.from_dict(spec)
+
+
+def test_valid_gene_rules_are_still_accepted(spec: dict[str, object]) -> None:
+    # GIVEN gene rules that are legitimate boolean expressions.
+    for rule in ("xfp", "a and b", "a or (b and c)", "(a and b) and c"):
+        spec["gene_reaction_rule"] = rule
+        # WHEN building the request.
+        # THEN it succeeds; the syntax check must not reject working input.
+        assert ReactionRequest.from_dict(spec).gene_reaction_rule == rule
 
 
 # ==== example data ====

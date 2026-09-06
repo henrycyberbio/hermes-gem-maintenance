@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MODEL = REPO_ROOT / "examples" / "add-reaction" / "model" / "iEC1372_W3110.xml"
+MANIFEST = MODEL.with_suffix(".source.json")
 REACTION = REPO_ROOT / "examples" / "add-reaction" / "reaction.json"
 RECORDS = REPO_ROOT / "examples" / "records"
 
@@ -72,6 +73,7 @@ def write() -> None:
                 f"--model={MODEL}",
                 f"--reaction={REACTION}",
                 f"--output={candidate}",
+                f"--source_manifest={MANIFEST}",
             ),
             "check": _cli(
                 "check",

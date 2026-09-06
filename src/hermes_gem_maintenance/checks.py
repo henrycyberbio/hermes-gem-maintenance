@@ -183,6 +183,20 @@ def check_candidate(
     """Verify the candidate matches the request and changed nothing else."""
     result = CheckResult()
 
+    # The operation is "add", so absence from the baseline is part of the contract.
+    # Without it a candidate that is a byte-copy of a baseline already containing the
+    # reaction passes every check while having added nothing at all -- and `check`
+    # and `export` are public entry points that cannot assume `add_reaction` ran
+    # first and refused the duplicate.
+    if request.reaction_id in base.reactions:
+        result.record(
+            "reaction absent from baseline",
+            ok=False,
+            detail=f"{request.reaction_id} already present before the change",
+        )
+        return result
+    result.record("reaction absent from baseline", ok=True, detail=request.reaction_id)
+
     if request.reaction_id not in candidate.reactions:
         result.record(
             "reaction present", ok=False, detail=f"{request.reaction_id} missing"
@@ -226,10 +240,17 @@ def check_candidate(
 
     diff = diff_snapshots(semantic_snapshot(base), semantic_snapshot(candidate))
     unrelated = _unrelated_changes(diff, request.reaction_id)
+    added = diff.get("reactions", {}).get("added", [])
+    # Stated as one positive invariant rather than two negatives. Given the
+    # absence-from-baseline guard above, `added == [id]` cannot fail on its own --
+    # any violation also shows up in `unrelated` -- so the clause is redundant by
+    # construction and a mutation removing it survives the suite. It stays because
+    # the diff shape is the actual contract of an "add" operation, and reading it
+    # here is how a future change to the guard gets caught.
     result.record(
-        "no unrelated semantic changes",
-        ok=not unrelated,
-        detail=str(unrelated) if unrelated else "only the requested reaction added",
+        "diff is exactly the requested addition",
+        ok=added == [request.reaction_id] and not unrelated,
+        detail=str(unrelated) if unrelated else f"added: {added}",
     )
     return result
 

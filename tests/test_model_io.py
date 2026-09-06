@@ -221,6 +221,51 @@ def test_shared_formula_across_compartments_stays_ambiguous(
     assert require_unique_metabolite(model, "H2O", compartment="c")["id"] == "h2o_c"
 
 
+def test_case_matters_for_formula_and_identifier_matching(
+    model: cobra.Model,
+) -> None:
+    # GIVEN two metabolites whose formulae differ only in case: CO is carbon
+    # monoxide, Co is cobalt. (Regression: query, id, name and formula were all
+    # lowercased before matching, so `CO` was reported as an *exact formula* match
+    # for cobalt -- a chemistry error dressed up as a search result.)
+    model.add_metabolites([
+        cobra.Metabolite("co_c", name="Carbon monoxide", formula="CO", charge=0,
+                         compartment="c"),
+        cobra.Metabolite("cobalt2_c", name="Cobalt", formula="Co", charge=2,
+                         compartment="c"),
+    ])
+    # WHEN resolving each formula exactly.
+    carbon = require_unique_metabolite(model, "CO")
+    cobalt = require_unique_metabolite(model, "Co")
+    # THEN they resolve to different metabolites.
+    assert carbon["id"] == "co_c"
+    assert cobalt["id"] == "cobalt2_c"
+
+
+def test_identifier_case_is_not_folded(model: cobra.Model) -> None:
+    # GIVEN a metabolite whose identifier carries meaningful capitals.
+    model.add_metabolites(
+        [cobra.Metabolite("ACP_c", name="Acyl carrier protein", formula="C11H21N2O7PRS",
+                          charge=0, compartment="c")]
+    )
+    # WHEN querying with the wrong case.
+    candidates = resolve_metabolite(model, "acp_c")
+    # THEN it is not an exact identifier match; identifiers are exact tokens.
+    assert not any(c["matched_on"] == "exact identifier" for c in candidates)
+    assert require_unique_metabolite(model, "ACP_c")["id"] == "ACP_c"
+
+
+def test_names_remain_case_insensitive(model: cobra.Model) -> None:
+    # GIVEN a metabolite with a natural-language name.
+    model.add_metabolites(
+        [cobra.Metabolite("zzz_c", name="Peculiar Compound", formula="C9H9",
+                          charge=0, compartment="c")]
+    )
+    # WHEN querying it in a different case.
+    # THEN it still matches: prose carries no case convention, unlike formulae.
+    assert require_unique_metabolite(model, "peculiar compound")["id"] == "zzz_c"
+
+
 # ==== write guards ====
 
 

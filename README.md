@@ -22,11 +22,13 @@ source, tests, or worked answer — on the successful case, on two requests it s
 refuse, and on one it should correct before completing; see
 [`examples/scenarios/`](examples/scenarios/).
 
-Those exercises cover the paths an agent takes with a well-formed request. An
-adversarial review of the package itself found four defects they could not reach —
+Those exercises cover the paths an agent takes with a well-formed request. Two rounds
+of adversarial review of the package itself found defects they could not reach:
 delivery of a candidate whose balance check never ran, unchecked reaction metadata,
-exact identifiers made unresolvable by substring noise, and malformed JSON escaping
-the error taxonomy. All four are fixed and pinned by regression tests. Treat
+exact identifiers made unresolvable by substring noise, malformed JSON escaping the
+error taxonomy, a "check" that accepted a candidate which had added nothing, a
+deliverable left on disk after a failed integrity check, and case-folding that
+conflated `CO` with `Co`. All are fixed and pinned by regression tests. Treat
 behavioural exercises and adversarial review as answering different questions.
 
 ## Use
@@ -53,15 +55,21 @@ Each subcommand prints JSON and exits non-zero on a deliberate error.
 ```bash
 uv run hermes-gem-maintenance inspect  --model=MODEL [--reaction=ID | --metabolite=ID]
 uv run hermes-gem-maintenance resolve  --model=MODEL --query=NAME [--compartment=C]
-uv run hermes-gem-maintenance add_reaction --model=MODEL --reaction=SPEC.json --output=CAND.xml
+uv run hermes-gem-maintenance add_reaction --model=MODEL --reaction=SPEC.json --output=CAND.xml [--source_manifest=SRC.json]
 uv run hermes-gem-maintenance check    --model=MODEL --candidate=CAND.xml --reaction=SPEC.json
-uv run hermes-gem-maintenance export   --model=MODEL --candidate=CAND.xml --reaction=SPEC.json --output=OUT.xml
+uv run hermes-gem-maintenance export   --model=MODEL --candidate=CAND.xml --reaction=SPEC.json --output=OUT.xml [--source_manifest=SRC.json]
 ```
 
 `resolve` returns every plausible match with the reason it matched and never picks a
 winner; choosing between candidates is the caller's judgment. `export` re-checks the
 candidate as loaded from disk and refuses to write a deliverable unless every check
-ran and passed. A check that could not be decided blocks delivery too.
+ran and passed. A check that could not be decided blocks delivery too. Deliverables
+are published by atomic rename after the final baseline check, so a failed run leaves
+nothing at the output path.
+
+`--source_manifest` is how a caller asserts *which* model it expected. Without it the
+tool can only confirm the file did not change while the command ran; the result's
+`baseline_verified_against` field names the guarantee actually obtained.
 
 Errors carry a category so a caller can tell them apart without parsing prose:
 

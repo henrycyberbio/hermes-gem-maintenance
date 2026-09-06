@@ -7,11 +7,17 @@ requires-python = ">=3.13"
 dependencies = [
     "cobra>=0.32,<0.33",
     "fire>=0.7,<0.8",
-    "memote==0.17.0",
 ]
 
 [project.scripts]
 hermes-gem-maintenance = "hermes_gem_maintenance.cli:main"
+
+[project.optional-dependencies]
+# MEMOTE is not used by this package. It is the standard test suite for whole-model
+# quality and belongs in a review workflow, not in the install of a tool that adds
+# one reaction -- as a runtime dependency it pulled pytest, PyGithub, SQLAlchemy and
+# cookiecutter into every install for no functionality.
+memote = ["memote==0.17.0"]
 
 [dependency-groups]
 dev = [

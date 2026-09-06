@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import fire
+from cobra.io import write_sbml_model
 
 from hermes_gem_maintenance.changes import ReactionRequest, add_reaction
 from hermes_gem_maintenance.checks import check_candidate
@@ -27,8 +28,9 @@ from hermes_gem_maintenance.inspect import (
 from hermes_gem_maintenance.model_io import (
     file_digest,
     load_model,
-    save_candidate,
+    staged_write,
     verify_digest,
+    verify_source,
 )
 
 logger = logging.getLogger(__name__)
@@ -37,6 +39,20 @@ logger = logging.getLogger(__name__)
 def _emit(payload: dict[str, Any]) -> str:
     """Serialize a result. Fire prints the return value, so no print() is needed."""
     return json.dumps(payload, indent=2, sort_keys=True)
+
+
+def _provenance(source_manifest: str, expected_sha256: str) -> str:
+    """State which guarantee the baseline check actually gave.
+
+    "Unchanged during this command" and "is the approved artifact" are different
+    claims, and a payload that does not distinguish them invites the weaker one to be
+    read as the stronger.
+    """
+    if source_manifest:
+        return f"source manifest: {Path(source_manifest).name}"
+    if expected_sha256:
+        return "caller-supplied expected_sha256"
+    return "self-digest only: unchanged during this command, provenance unverified"
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -88,29 +104,49 @@ class Cli:
             }
         )
 
-    def add_reaction(self, model: str, reaction: str, output: str) -> str:
+    def add_reaction(
+        self,
+        model: str,
+        reaction: str,
+        output: str,
+        source_manifest: str = "",
+        expected_sha256: str = "",
+    ) -> str:
         """Apply a structured reaction definition, writing a new candidate model.
 
         Args:
             model: Path to the baseline SBML model; never modified.
             reaction: Path to a JSON reaction definition.
             output: Path for the candidate model; must not already exist.
+            source_manifest: Path to the model's source manifest. When given, the
+                baseline must match the SHA-256 it records before anything is read.
+            expected_sha256: The approved digest, if there is no manifest.
         """
         baseline = Path(model)
-        before = file_digest(baseline)
+        before = verify_source(
+            baseline,
+            manifest=Path(source_manifest) if source_manifest else None,
+            expected=expected_sha256,
+        )
         request = ReactionRequest.from_dict(_read_json(Path(reaction)))
 
         loaded = load_model(baseline)
         add_reaction(loaded, request)
-        written = save_candidate(loaded, Path(output), protected=baseline)
 
-        verify_digest(baseline, before)
+        with staged_write(Path(output), protected=baseline) as staged:
+            write_sbml_model(loaded, str(staged))
+            verify_digest(baseline, before)
+            candidate_digest = file_digest(staged)
+
         return _emit(
             {
                 "reaction_id": request.reaction_id,
-                "candidate": written.name,
-                "candidate_sha256": file_digest(written),
+                "candidate": Path(output).name,
+                "candidate_sha256": candidate_digest,
                 "baseline_sha256": before,
+                "baseline_verified_against": _provenance(
+                    source_manifest, expected_sha256
+                ),
             }
         )
 
@@ -128,23 +164,39 @@ class Cli:
         )
         return _emit({"reaction_id": request.reaction_id, **result.as_dict()})
 
-    def export(self, model: str, candidate: str, reaction: str, output: str) -> str:
+    def export(
+        self,
+        model: str,
+        candidate: str,
+        reaction: str,
+        output: str,
+        source_manifest: str = "",
+        expected_sha256: str = "",
+    ) -> str:
         """Re-check a candidate and write the deliverable only if it passes.
 
         The re-check is the point: a candidate is validated again, as loaded from
         disk, immediately before delivery. A candidate whose checks could not be
         decided is refused too -- delivering it would present an untested model as a
-        verified one.
+        verified one. The deliverable is published by atomic rename after the final
+        baseline check, so a failed run never leaves a file at the output path.
 
         Args:
             model: Path to the baseline SBML model.
             candidate: Path to the candidate SBML model.
             reaction: Path to the JSON reaction definition that was requested.
             output: Path for the deliverable model; must not already exist.
+            source_manifest: Path to the model's source manifest. When given, the
+                baseline must match the SHA-256 it records.
+            expected_sha256: The approved digest, if there is no manifest.
         """
         request = ReactionRequest.from_dict(_read_json(Path(reaction)))
         baseline = Path(model)
-        before = file_digest(baseline)
+        before = verify_source(
+            baseline,
+            manifest=Path(source_manifest) if source_manifest else None,
+            expected=expected_sha256,
+        )
 
         loaded_candidate = load_model(Path(candidate))
         result = check_candidate(load_model(baseline), loaded_candidate, request)
@@ -156,13 +208,19 @@ class Cli:
             )
             raise ValidationFailedError(msg, **result.as_dict())
 
-        written = save_candidate(loaded_candidate, Path(output), protected=baseline)
-        verify_digest(baseline, before)
+        with staged_write(Path(output), protected=baseline) as staged:
+            write_sbml_model(loaded_candidate, str(staged))
+            verify_digest(baseline, before)
+            delivered_digest = file_digest(staged)
+
         return _emit(
             {
                 "reaction_id": request.reaction_id,
-                "delivered": written.name,
-                "delivered_sha256": file_digest(written),
+                "delivered": Path(output).name,
+                "delivered_sha256": delivered_digest,
+                "baseline_verified_against": _provenance(
+                    source_manifest, expected_sha256
+                ),
                 **result.as_dict(),
             }
         )

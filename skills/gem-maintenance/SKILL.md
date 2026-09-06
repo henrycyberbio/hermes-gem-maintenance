@@ -143,6 +143,14 @@ Only a genuine conflict or a genuine gap goes back to the user.
 - **An exact identifier resolves regardless of how many others contain it.**
   `g3p_c` names one metabolite and appears inside sixteen more; the crowd is noise.
   Vague *names* are a different matter — see the crowd rule below.
+- **Identifier and formula queries are case-sensitive; names are not.** `Co` is
+  cobalt, `CO` is carbon monoxide, and `ACP_c` is not `acp_c`. If an identifier you
+  copied from a request does not resolve, check its capitalisation before concluding
+  the metabolite is absent.
+- **Pass `--source_manifest` when the model has one.** Without it the tool proves
+  only that the file did not change during the command, not that it is the approved
+  artifact; the payload's `baseline_verified_against` says which you got. The example
+  model's manifest sits beside it as `<model>.source.json`.
 - **The output path must not exist.** Both `add_reaction` and `export` refuse an
   existing file rather than overwrite evidence. Use a new path per attempt.
 - **Zero candidates usually means the query wording, not an absent metabolite.**

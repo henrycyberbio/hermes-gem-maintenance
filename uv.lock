@@ -574,6 +574,10 @@ source = { editable = "." }
 dependencies = [
     { name = "cobra" },
     { name = "fire" },
+]
+
+[package.optional-dependencies]
+memote = [
     { name = "memote" },
 ]
 
@@ -587,8 +591,9 @@ dev = [
 requires-dist = [
     { name = "cobra", specifier = ">=0.32,<0.33" },
     { name = "fire", specifier = ">=0.7,<0.8" },
-    { name = "memote", specifier = "==0.17.0" },
+    { name = "memote", marker = "extra == 'memote'", specifier = "==0.17.0" },
 ]
+provides-extras = ["memote"]
 
 [package.metadata.requires-dev]
 dev = [

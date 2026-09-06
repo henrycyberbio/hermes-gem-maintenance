@@ -1,6 +1,7 @@
 {
   "add": {
     "baseline_sha256": "109290d2e2407a94f8088f9ef9fd40f6db6b73b1cf36574d6d987527ece8d9b7",
+    "baseline_verified_against": "source manifest: iEC1372_W3110.source.json",
     "candidate": "candidate.xml",
     "candidate_sha256": "de83f0dae95778b7945f7d7c43eb483e61c8b87e5ab6dafdc68a8f8fdc602a38",
     "reaction_id": "PKETF"
@@ -8,6 +9,7 @@
   "check": {
     "failed": [],
     "passed": [
+      "reaction absent from baseline: PKETF",
       "reaction present: PKETF",
       "stoichiometry matches request: {'f6p_c': -1.0, 'pi_c': -1.0, 'actp_c': 1.0, 'e4p_c': 1.0, 'h2o_c': 1.0}",
       "bounds match request: (0.0, 1000.0)",
@@ -15,7 +17,7 @@
       "name matches request: Phosphoketolase (fructose-6-phosphate utilizing)",
       "subsystem matches request: (none)",
       "mass and charge balance: balanced",
-      "no unrelated semantic changes: only the requested reaction added"
+      "diff is exactly the requested addition: added: ['PKETF']"
     ],
     "reaction_id": "PKETF",
     "status": "passed",

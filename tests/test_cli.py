@@ -13,6 +13,7 @@ import cobra
 import pytest
 from cobra.io import write_sbml_model
 
+from hermes_gem_maintenance import cli as cli_module
 from hermes_gem_maintenance.cli import Cli
 from hermes_gem_maintenance.errors import (
     InsufficientInformationError,
@@ -324,6 +325,92 @@ def test_malformed_definition_becomes_a_structured_error(
             output=str(tmp_path / "candidate.xml"),
         )
     assert caught.value.as_dict()["category"] == "request_violation"
+
+
+def test_export_leaves_no_deliverable_when_the_baseline_changes_mid_run(
+    baseline: Path, request_file: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # GIVEN a run during which the baseline is modified after the candidate is
+    # written but before the final integrity check. (Regression: the deliverable was
+    # saved directly to the output path and verified afterwards, so a detected
+    # tampering still left a full-sized file named like a successful result.)
+    candidate = tmp_path / "candidate.xml"
+    Cli().add_reaction(
+        model=str(baseline), reaction=str(request_file), output=str(candidate)
+    )
+    delivered = tmp_path / "result.xml"
+    real_write = cli_module.write_sbml_model
+
+    def write_then_tamper(model: object, path: str) -> None:
+        real_write(model, path)
+        baseline.write_bytes(baseline.read_bytes() + b"<!-- tampered -->")
+
+    monkeypatch.setattr(cli_module, "write_sbml_model", write_then_tamper)
+    # WHEN exporting.
+    # THEN the integrity failure is reported and nothing is left at the output path.
+    with pytest.raises(ModelIntegrityError):
+        Cli().export(
+            model=str(baseline),
+            candidate=str(candidate),
+            reaction=str(request_file),
+            output=str(delivered),
+        )
+    assert not delivered.exists()
+    assert not list(tmp_path.glob(".*.partial"))
+
+
+def test_export_verifies_the_baseline_against_a_source_manifest(
+    baseline: Path, request_file: Path, tmp_path: Path
+) -> None:
+    # GIVEN a manifest recording a digest the baseline does not have, standing in for
+    # a frozen input that drifted before the command started. (Regression: the CLI
+    # digested the file it was given and compared it to itself, proving only that
+    # nothing changed during the command.)
+    manifest = tmp_path / "source.json"
+    manifest.write_text(
+        json.dumps({"artifact": {"sha256": "0" * 64}}), encoding="utf-8"
+    )
+    # WHEN adding a reaction with that manifest.
+    # THEN it refuses before reading the model.
+    with pytest.raises(ModelIntegrityError, match="recorded digest"):
+        Cli().add_reaction(
+            model=str(baseline),
+            reaction=str(request_file),
+            output=str(tmp_path / "candidate.xml"),
+            source_manifest=str(manifest),
+        )
+    assert not (tmp_path / "candidate.xml").exists()
+
+
+def test_payload_says_which_baseline_guarantee_was_given(
+    baseline: Path, request_file: Path, tmp_path: Path
+) -> None:
+    # GIVEN a run with no manifest and no expected digest.
+    payload = json.loads(
+        Cli().add_reaction(
+            model=str(baseline),
+            reaction=str(request_file),
+            output=str(tmp_path / "candidate.xml"),
+        )
+    )
+    # WHEN reading the result.
+    # THEN it states the weaker guarantee plainly, rather than letting "baseline_sha256"
+    # be read as proof of provenance.
+    assert "provenance unverified" in payload["baseline_verified_against"]
+
+    manifest = tmp_path / "source.json"
+    manifest.write_text(
+        json.dumps({"artifact": {"sha256": file_digest(baseline)}}), encoding="utf-8"
+    )
+    verified = json.loads(
+        Cli().add_reaction(
+            model=str(baseline),
+            reaction=str(request_file),
+            output=str(tmp_path / "candidate2.xml"),
+            source_manifest=str(manifest),
+        )
+    )
+    assert "source manifest" in verified["baseline_verified_against"]
 
 
 def test_export_reports_a_failing_candidate_as_distinct_from_a_damaged_baseline(

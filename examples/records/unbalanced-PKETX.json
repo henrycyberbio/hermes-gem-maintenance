@@ -17,13 +17,14 @@
         "mass and charge balance: {'H': -2.0, 'O': -1.0}"
       ],
       "passed": [
+        "reaction absent from baseline: PKETX",
         "reaction present: PKETX",
         "stoichiometry matches request: {'xu5p__D_c': -1.0, 'pi_c': -1.0, 'actp_c': 1.0, 'g3p_c': 1.0}",
         "bounds match request: (0.0, 1000.0)",
         "gene rule matches request: xfp",
         "name matches request: (none)",
         "subsystem matches request: (none)",
-        "no unrelated semantic changes: only the requested reaction added"
+        "diff is exactly the requested addition: added: ['PKETX']"
       ],
       "reaction_id": "PKETX",
       "status": "failed",
@@ -47,6 +48,7 @@
     "check": {
       "failed": [],
       "passed": [
+        "reaction absent from baseline: PKETX",
         "reaction present: PKETX",
         "stoichiometry matches request: {'xu5p__D_c': -1.0, 'pi_c': -1.0, 'actp_c': 1.0, 'g3p_c': 1.0, 'h2o_c': 1.0}",
         "bounds match request: (0.0, 1000.0)",
@@ -54,7 +56,7 @@
         "name matches request: (none)",
         "subsystem matches request: (none)",
         "mass and charge balance: balanced",
-        "no unrelated semantic changes: only the requested reaction added"
+        "diff is exactly the requested addition: added: ['PKETX']"
       ],
       "reaction_id": "PKETX",
       "status": "passed",

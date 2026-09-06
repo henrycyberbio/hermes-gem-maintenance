@@ -16,24 +16,35 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class MatchKind:
-    """One way a query can match a metabolite, strongest kinds listed first."""
+    """One way a query can match a metabolite, strongest kinds listed first.
+
+    `case_sensitive` is per field because the fields are different kinds of data. A
+    chemical formula is case-significant notation: `CO` is carbon monoxide and `Co`
+    is cobalt, so folding them together and calling the result an exact match is a
+    chemistry error, not a search convenience. Identifiers are exact tokens for the
+    same reason -- `acp_c` and `ACP_c` are not interchangeable. Natural-language
+    names carry no such convention and stay case-insensitive.
+    """
 
     label: str
     field: str
     exact: bool
+    case_sensitive: bool = False
 
     def matches(self, needle: str, value: str) -> bool:
+        if not self.case_sensitive:
+            needle, value = needle.casefold(), value.casefold()
         return value == needle if self.exact else needle in value
 
 
 MATCH_KINDS: tuple[MatchKind, ...] = (
-    MatchKind("exact identifier", "id", exact=True),
+    MatchKind("exact identifier", "id", exact=True, case_sensitive=True),
     MatchKind("exact name", "name", exact=True),
     # Formula ranks above substring kinds: an exact formula is stronger evidence of
     # identity than a fragment of a name. It is the only way to reach a metabolite
     # whose name is unusable -- BiGG stores water as "H2O H2O", so no natural name
     # query finds it, and without this a caller must guess an identifier.
-    MatchKind("exact formula", "formula", exact=True),
+    MatchKind("exact formula", "formula", exact=True, case_sensitive=True),
     MatchKind("identifier substring", "id", exact=False),
     MatchKind("name substring", "name", exact=False),
 )
@@ -109,7 +120,7 @@ def resolve_metabolite(
     pick a winner: choosing among several candidates is a judgment the caller must
     make or ask about.
     """
-    needle = query.strip().lower()
+    needle = query.strip()
     candidates: list[dict[str, Any]] = []
 
     for metabolite in model.metabolites:
@@ -138,12 +149,11 @@ def resolve_metabolite(
 def _classify(
     needle: str, identifier: str, name: str, formula: str
 ) -> MatchKind | None:
-    """Strongest match kind between the query and one metabolite, or None."""
-    haystack = {
-        "id": identifier.lower(),
-        "name": name.lower(),
-        "formula": formula.lower(),
-    }
+    """Strongest match kind between the query and one metabolite, or None.
+
+    Values are passed through unfolded; each MatchKind applies its own case rule.
+    """
+    haystack = {"id": identifier, "name": name, "formula": formula}
     for kind in MATCH_KINDS:
         if haystack[kind.field] and kind.matches(needle, haystack[kind.field]):
             return kind

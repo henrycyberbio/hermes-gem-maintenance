@@ -119,9 +119,11 @@ candidate's `id`. The narrow query either settles or does not, and the verdict c
 from the tool rather than from you picking a row. Reading an identifier out of a
 candidate list and using it *without* re-resolving is guessing.
 
-Matching is literal, case-insensitive substring — there is no fuzzy matching and no
-synonym table. Punctuation counts, and BiGG names are often not the words a requester
-uses:
+Matching is literal substring, and case handling differs by field because the fields
+are different kinds of data. Identifiers and formulae are compared **case-sensitively**
+— `CO` is carbon monoxide and `Co` is cobalt, so folding them together and calling the
+result an exact match is a chemistry error. Names are case-insensitive. Punctuation
+counts, and BiGG names are often not the words a requester uses:
 
 | Query | Compartment | Result against this model |
 | --- | --- | --- |
@@ -153,21 +155,34 @@ compartment, do not rank them. Pass `--compartment=c` when the request settles i
 ## add_reaction
 
 ```bash
-uv run hermes-gem-maintenance add_reaction --model=MODEL --reaction=SPEC.json --output=CAND.xml
+uv run hermes-gem-maintenance add_reaction --model=MODEL --reaction=SPEC.json --output=CAND.xml \
+  --source_manifest=MODEL.source.json
 ```
 
 ```json
 {
   "baseline_sha256": "109290d2e2407a94f8088f9ef9fd40f6db6b73b1cf36574d6d987527ece8d9b7",
+  "baseline_verified_against": "source manifest: iEC1372_W3110.source.json",
   "candidate": "c.xml",
   "candidate_sha256": "8083404ad9f555300e44379aead00744b48715d4f24f8a876226bde923ac1f34",
   "reaction_id": "DEMO_ATPH"
 }
 ```
 
-Enforces only what it can decide while writing: the identifier must be new and every
-metabolite must exist. **An unbalanced reaction is written without complaint.** The
-digest is recomputed after the write to prove the baseline is untouched.
+Enforces only what it can decide while writing: the identifier must be new, every
+metabolite must exist, and the gene rule must parse. **An unbalanced reaction is
+written without complaint** — that is `check`'s job.
+
+**Pass `--source_manifest` whenever a manifest exists.** Without it the command
+digests the file it was handed and compares it to itself, which proves only that
+nothing changed during those few seconds. It cannot detect a baseline that had
+already drifted before the command started, which is the ordinary way a frozen input
+stops being the approved one. `baseline_verified_against` says which guarantee you
+actually got; `self-digest only` in that field means provenance was never checked.
+`--expected_sha256=<digest>` does the same job when there is no manifest file.
+
+The candidate is written to a staged path and moved into place only after the
+baseline is re-verified, so a failed run leaves nothing at `--output`.
 
 ## check
 
@@ -182,6 +197,7 @@ uv run hermes-gem-maintenance check --model=MODEL --candidate=CAND.xml --reactio
   "failed": [],
   "unverifiable": [],
   "passed": [
+    "reaction absent from baseline: DEMO_ATPH",
     "reaction present: DEMO_ATPH",
     "stoichiometry matches request: {'atp_c': -1.0, 'h2o_c': -1.0, 'adp_c': 1.0, 'pi_c': 1.0, 'h_c': 1.0}",
     "bounds match request: (0.0, 1000.0)",
@@ -189,7 +205,7 @@ uv run hermes-gem-maintenance check --model=MODEL --candidate=CAND.xml --reactio
     "name matches request: Demonstration ATP hydrolysis",
     "subsystem matches request: (none)",
     "mass and charge balance: balanced",
-    "no unrelated semantic changes: only the requested reaction added"
+    "diff is exactly the requested addition: added: ['DEMO_ATPH']"
   ]
 }
 ```
@@ -199,6 +215,12 @@ field the request specifies is compared, and so is every field it *omits* — a
 candidate carrying a name, subsystem or gene rule the request never asked for fails,
 because inventing metadata is the silent edit these checks exist to catch. `(none)`
 in a detail line means the request left that field empty and the candidate agreed.
+
+The first and last entries are the shape of the operation, not decoration. `check`
+and `export` are independent commands: neither may assume `add_reaction` ran first
+and refused a duplicate, so the reaction must be *absent from the baseline* and the
+diff must be *exactly one addition*. A candidate that merely contains the reaction —
+including a byte-copy of a baseline that already had it — is not an addition.
 
 A failing check exits 0 with `status: "failed"` — it is a verdict, not an error. The
 `failed` entry carries the diagnosis:
