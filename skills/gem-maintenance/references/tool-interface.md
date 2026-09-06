@@ -8,17 +8,21 @@ Python API.
 
 ## Reaction definition
 
-The structured definition the agent produces and the package validates.
+The structured definition the agent produces and the package validates. The example
+below is deliberately **not** the repository's worked case: it restates `CITL`, a
+reaction already present in `iEC1372_W3110`, so reading it cannot substitute for
+deriving a definition from the model in front of you. (Submitting it as an addition
+would be rejected as a duplicate identifier.)
 
 ```json
 {
-  "reaction_id": "PKETF",
-  "name": "Phosphoketolase (fructose-6-phosphate utilizing)",
-  "metabolites": {"f6p_c": -1, "pi_c": -1, "actp_c": 1, "e4p_c": 1, "h2o_c": 1},
+  "reaction_id": "CITL",
+  "name": "Citrate lyase",
+  "metabolites": {"cit_c": -1, "ac_c": 1, "oaa_c": 1},
   "lower_bound": 0.0,
   "upper_bound": 1000.0,
-  "gene_reaction_rule": "xfp",
-  "subsystem": "Heterologous pathway"
+  "gene_reaction_rule": "Y7U_RS03200 and Y7U_RS03205",
+  "subsystem": "Citric Acid Cycle"
 }
 ```
 
@@ -26,6 +30,23 @@ Required: `reaction_id`, `metabolites`, `lower_bound`, `upper_bound`. Optional:
 `name`, `subsystem`, `gene_reaction_rule`. Coefficients are signed — negative for
 consumed, positive for produced — and must be non-zero. Any other key is ignored, so
 provenance fields may be carried alongside for the human record.
+
+Every value comes from the request or from the model, never from an example
+elsewhere. Deriving the fields:
+
+| Field | Where it comes from |
+| --- | --- |
+| `reaction_id` | The request, or the namespace record it cites. Confirm it is absent with `inspect --reaction=ID`. |
+| `metabolites` | `resolve` each participant against the model. Use the returned `id`, never a name from the request. |
+| Coefficients | The stoichiometry the request states. One molecule each unless it says otherwise. |
+| `lower_bound` | `0` for an irreversible forward reaction, `-1000` when reversible. |
+| `upper_bound` | `1000`, the convention this model uses for an unconstrained bound — read a few existing reactions with `inspect --reaction=ID` and match them rather than assuming. |
+| `gene_reaction_rule` | The request. Absent unless supplied; do not invent a gene. |
+| `name`, `subsystem` | The request, or omit. They are optional and affect nothing. |
+
+When the request fixes a direction but names no numeric bound, take the magnitude
+from the model's own convention and say in your report that you did so. When the
+model shows no consistent convention, ask.
 
 ## inspect
 
@@ -48,7 +69,7 @@ With `--reaction=ID` or `--metabolite=ID`, returns that object's structured fiel
 An absent object is reported, not raised:
 
 ```json
-{"absent": "PKETF", "kind": "reaction"}
+{"absent": "SOMERXN", "kind": "reaction"}
 ```
 
 Use this to confirm a target reaction does not already exist before proposing to add
@@ -66,6 +87,7 @@ uv run hermes-gem-maintenance resolve --model=MODEL --query="D-Fructose 6-phosph
   "compartment": null,
   "count": 3,
   "unambiguous": false,
+  "resolved_id": null,
   "candidates": [
     {"id": "f6p_c", "name": "D-Fructose 6-phosphate", "compartment": "c",
      "formula": "C6H11O9P", "charge": 0, "matched_on": "exact name"},
@@ -78,21 +100,46 @@ uv run hermes-gem-maintenance resolve --model=MODEL --query="D-Fructose 6-phosph
 ```
 
 Candidates are ordered strongest first by `matched_on`: `exact identifier`, then
-`exact name`, then `identifier substring`, then `name substring`. The command never
-picks a winner. `unambiguous` is true only when exactly one candidate matched.
+`exact name`, then `exact formula`, then `identifier substring`, then `name
+substring`. The command never picks a winner by ranking, but it does report a verdict:
+`resolved_id` names the single candidate a caller may act on, or is `null`.
+
+A query is settled when exactly one *exact* match came back and only a handful of
+weak ones sit beside it — `pi_c` matches one identifier exactly and three as
+substrings, and calling that ambiguous would block every short identifier. It is
+unsettled in two cases: two exact matches compete (the same name in two
+compartments), or an exact hit is buried in a crowd of weak matches. `phosphate`
+names one metabolite exactly and appears in 165 others; a word that vague identified
+nothing, so `resolved_id` is `null` even though an exact-name candidate is in the
+list.
+
+**Refining a crowded result is legitimate.** When a broad query returns `null` but
+its candidate list shows a plausible exact-name hit, re-run `resolve` with that
+candidate's `id`. The narrow query either settles or does not, and the verdict comes
+from the tool rather than from you picking a row. Reading an identifier out of a
+candidate list and using it *without* re-resolving is guessing.
 
 Matching is literal, case-insensitive substring — there is no fuzzy matching and no
-synonym table. Punctuation counts:
+synonym table. Punctuation counts, and BiGG names are often not the words a requester
+uses:
 
 | Query | Result against this model |
 | --- | --- |
 | `fructose-6-phosphate` | 0 candidates — the model writes `D-Fructose 6-phosphate` |
-| `Fructose 6-phosphate` | 1 candidate in compartment `c` |
-| `phosphate` | 166 candidates |
+| `Fructose 6-phosphate` | 1 candidate, `resolved_id: f6p_c` |
+| `water` | 0 candidates — BiGG names water `H2O H2O` |
+| `H2O` | 3 candidates, `resolved_id: h2o_c` via `exact formula` |
+| `phosphate` | 166 candidates, `resolved_id: null` — too vague to settle |
+| `pi_c` | 4 candidates, `resolved_id: pi_c` — one exact id, rest substrings |
+
+**Formula is the escape hatch for an unusable name.** When a metabolite's name cannot
+be guessed, query its molecular formula: an exact formula match outranks substring
+kinds and is how `h2o_c` is reachable at all. It settles the query only when one
+metabolite in scope carries that formula, so `C6H11O9P` returns `null`.
 
 `"count": 0` is a statement about the query, not about the model. Retry with a
-shorter distinctive fragment, with the BiGG identifier, and without `--compartment`
-before treating a metabolite as absent.
+shorter distinctive fragment, with the formula, with the suspected identifier, and
+without `--compartment` before treating a metabolite as absent.
 
 Three exact-name matches across compartments is the ambiguity case: ask which
 compartment, do not rank them. Pass `--compartment=c` when the request settles it.
@@ -106,9 +153,9 @@ uv run hermes-gem-maintenance add_reaction --model=MODEL --reaction=SPEC.json --
 ```json
 {
   "baseline_sha256": "109290d2e2407a94f8088f9ef9fd40f6db6b73b1cf36574d6d987527ece8d9b7",
-  "candidate": "candidate.xml",
-  "candidate_sha256": "de83f0dae95778b7945f7d7c43eb483e61c8b87e5ab6dafdc68a8f8fdc602a38",
-  "reaction_id": "PKETF"
+  "candidate": "c.xml",
+  "candidate_sha256": "28833db135078ad5ffcdf668bd8c078aeaf5cfb0cd9529682a7110443fabdf72",
+  "reaction_id": "PKETX"
 }
 ```
 
@@ -124,13 +171,13 @@ uv run hermes-gem-maintenance check --model=MODEL --candidate=CAND.xml --reactio
 
 ```json
 {
-  "reaction_id": "PKETF",
+  "reaction_id": "PKETX",
   "status": "passed",
   "failed": [],
   "unverifiable": [],
   "passed": [
-    "reaction present: PKETF",
-    "stoichiometry matches request: {'f6p_c': -1.0, 'pi_c': -1.0, 'actp_c': 1.0, 'e4p_c': 1.0, 'h2o_c': 1.0}",
+    "reaction present: PKETX",
+    "stoichiometry matches request: {'xu5p__D_c': -1.0, 'pi_c': -1.0, 'actp_c': 1.0, 'g3p_c': 1.0, 'h2o_c': 1.0}",
     "bounds match request: (0.0, 1000.0)",
     "gene rule matches request: xfp",
     "mass and charge balance: balanced",
@@ -166,7 +213,7 @@ the full check result. On failure nothing is written:
 {
   "category": "validation_failed",
   "message": "candidate failed re-validation; no deliverable written",
-  "failed": ["reaction present: PKETF missing"],
+  "failed": ["reaction present: PKETX missing"],
   "passed": [],
   "status": "failed"
 }

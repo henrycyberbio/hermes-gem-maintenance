@@ -38,14 +38,33 @@ are in `references/tool-interface.md`. Read it before the first call in a sessio
 
 ## Working a request
 
+`--model` takes a path to an SBML **file**, not a directory. When the request names a
+folder, list it and pick the model file; a manifest such as `<model>.source.json`
+sits beside it and is not itself a model.
+
 Read the model before proposing anything. `inspect` gives counts and compartments;
 `inspect --reaction=ID` confirms whether the target already exists. Resolve every
 metabolite the request names with `resolve`, and read `matched_on` — an exact
 identifier hit is not the same evidence as a name substring.
 
+COBRApy writes progress and solver notes to stderr; stdout carries nothing but the
+JSON payload. To consume a result, discard stderr — `... 2>/dev/null` — and parse
+stdout directly. Use `2>&1 | grep -viE 'warning|optimality'` only when reading output
+yourself, never when parsing: merging the streams puts log lines in front of the JSON
+and breaks it.
+
+Either way the pipeline reports grep's exit status rather than the command's, so a
+failed call can look successful. Judge success by the payload — a `category` field
+means it failed — or add `set -o pipefail`.
+
 Build the structured definition yourself: reaction ID, stoichiometry keyed by
 model-native metabolite IDs with signed coefficients, bounds, and the gene rule when
 the request supplies one. Free text never reaches the writer.
+
+Every field must trace to the request or to the model you just inspected. Worked
+examples in the documentation show the *shape* of a payload, never the values for
+your task — if you find yourself copying an identifier or a coefficient out of a
+reference file, you have stopped deriving and started guessing.
 
 Then `add_reaction` to a fresh path, `check` the result, and `export` only once the
 checks pass. Write each run's request, definition, candidate, checks, and delivered
@@ -99,11 +118,17 @@ Only a genuine conflict or a genuine gap goes back to the user.
 - **Zero candidates usually means the query wording, not an absent metabolite.**
   Matching is literal substring, so punctuation and word order matter: the model
   writes `D-Fructose 6-phosphate`, and `fructose-6-phosphate` — the way a requester
-  naturally types it — returns nothing at all. An empty result is the most dangerous
-  one, because it reads as "not in this model" and invites inventing the metabolite.
-  Before concluding a metabolite is absent, retry with a shorter distinctive fragment
-  (`Fructose 6-phos`), with the suspected BiGG identifier, and without the
-  compartment filter. Confirm absence with `inspect --metabolite=ID`.
+  naturally types it — returns nothing at all. Some names are unusable outright:
+  BiGG stores water as `H2O H2O`. An empty result is the most dangerous one, because
+  it reads as "not in this model" and invites inventing the metabolite. Retry with a
+  shorter fragment, then with the molecular formula (`H2O` finds `h2o_c`), then with
+  the suspected identifier, and drop `--compartment`. Confirm absence with
+  `inspect --metabolite=ID`.
+- **A crowd of matches is not a resolution.** `resolve --query=phosphate` returns 166
+  candidates and `resolved_id: null`, even though one is named exactly "Phosphate".
+  A word that vague did not identify a metabolite. Narrow it: re-run `resolve` with
+  the promising candidate's `id` and let the tool return a verdict, rather than
+  lifting a row out of the list yourself.
 - **Several exact matches in different compartments is ambiguity, not a ranking
   problem.** `resolve` returning `f6p_c` and `f6p_p` means the request did not say
   which compartment. Ask.
