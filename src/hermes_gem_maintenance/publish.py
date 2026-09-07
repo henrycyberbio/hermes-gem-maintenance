@@ -16,6 +16,7 @@ from cobra.io import write_sbml_model
 
 from hermes_gem_maintenance.changes import add_reaction
 from hermes_gem_maintenance.checks import (
+    CheckResult,
     check_candidate,
     diff_snapshots,
     semantic_snapshot,
@@ -107,10 +108,9 @@ def build_candidate(
 ) -> CandidateResult:
     """Apply a request to the baseline and stage the result at `destination`.
 
-    The staged file is read back before it is published. A candidate is the input to
-    every later step, so writing bytes and hashing them without confirming they parse
-    would hand the caller a digest for something that is not a model -- the same
-    mistake `publish_deliverable` exists to prevent, one stage earlier.
+    The staged file is read back before it is published: a candidate is the input to
+    every later step, so hashing bytes without confirming they parse would hand the
+    caller a digest for something that is not a model.
     """
     before = verify_source(baseline, manifest=manifest, expected=expected_sha256)
     model = load_model(baseline)
@@ -139,22 +139,33 @@ def publish_deliverable(
     *,
     manifest: Path | None = None,
     expected_sha256: str = "",
+    candidate_sha256: str = "",
 ) -> ExportResult:
     """Re-check a candidate and publish it only if the published bytes are sound.
 
-    The staged file is loaded back and checked, not merely written and hashed. A
-    writer that returns cleanly having produced unreadable output would otherwise
-    publish it with `status: "passed"` -- existing on disk and having a SHA-256 is not
-    evidence of being a valid model. Everything after the write is therefore verified
-    against the artifact that will actually be released.
+    Both inputs are pinned by digest for the duration of the call, and the candidate
+    is parsed once: comparing a file that was re-read between checks would validate
+    bytes other than the ones being published. Pass `candidate_sha256` from
+    `build_candidate` to also pin the gap between the two commands.
+
+    The staged file is loaded back and checked rather than merely written and hashed.
+    Existing on disk with a SHA-256 is not evidence of being a valid model, so
+    everything after the write is verified against the artifact that will be released.
     """
     before = verify_source(baseline, manifest=manifest, expected=expected_sha256)
+    candidate_before = verify_source(
+        candidate, manifest=None, expected=candidate_sha256
+    )
+
     base_model = load_model(baseline)
-    result = check_candidate(base_model, load_model(candidate), request)
-    _refuse_unless_passed(result, "candidate")
+    proposed = load_model(candidate)
+    proposed_state = semantic_snapshot(proposed)
+    _refuse_unless_passed(
+        check_candidate(base_model, proposed, request), "candidate"
+    )
 
     with staged_write(destination, protected=baseline) as staged:
-        write_sbml_model(load_model(candidate), str(staged))
+        write_sbml_model(proposed, str(staged))
 
         # Reading the staged file back is the point: a writer that returns cleanly
         # having emitted unusable bytes would otherwise be published with a passing
@@ -163,21 +174,16 @@ def publish_deliverable(
         staged_result = check_candidate(base_model, published, request)
         _refuse_unless_passed(staged_result, "staged deliverable")
 
-        # Both comparisons run against the staged bytes, and they overlap: if the
-        # published file is byte-identical in meaning to the candidate, drift is empty
-        # and the candidate was already checked above, so this call cannot fail alone.
-        # A mutation deleting it therefore survives the suite. It stays because the
-        # payload the caller receives must describe the artifact that was actually
-        # released -- reporting the pre-staging result would attribute checks to a
-        # file that was never examined.
-        drift = diff_snapshots(
-            semantic_snapshot(load_model(candidate)), semantic_snapshot(published)
-        )
+        # Catches loss in the SBML writer itself: the checks above confirm the
+        # requested reaction survived, this confirms nothing else was dropped on the
+        # way out.
+        drift = diff_snapshots(proposed_state, semantic_snapshot(published))
         if drift:
             msg = "staged deliverable differs from the candidate; nothing published"
             raise ValidationFailedError(msg, drift=drift, **staged_result.as_dict())
 
         verify_digest(baseline, before)
+        verify_digest(candidate, candidate_before)
         digest = file_digest(staged)
 
     return ExportResult(
@@ -189,7 +195,7 @@ def publish_deliverable(
     )
 
 
-def _refuse_unless_passed(result: Any, subject: str) -> None:  # noqa: ANN401
+def _refuse_unless_passed(result: CheckResult, subject: str) -> None:
     """Raise unless every check ran and passed, naming which artifact failed."""
     if result.ok:
         return

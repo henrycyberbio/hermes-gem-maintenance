@@ -8,8 +8,8 @@ from math import isfinite
 from typing import Any
 
 import cobra
-from cobra.core.gene import GPR
 
+from hermes_gem_maintenance.checks import UncomparableGPRError, canonical_gpr
 from hermes_gem_maintenance.errors import (
     InsufficientInformationError,
     RequestViolationError,
@@ -53,25 +53,21 @@ def _optional_text(value: object, label: str, reaction_id: str) -> str:
 
 
 def _gene_rule(value: object, reaction_id: str) -> str:
-    """A gene rule that COBRApy can parse, or a refusal.
+    """A gene rule that reduces to boolean logic, or a refusal.
 
     COBRApy's setter does not raise on a malformed rule: it logs a parse traceback
-    and stores an empty rule. Without this check the package writes a candidate whose
-    gene association silently vanished, and the mismatch only surfaces later as a
-    validation failure -- the wrong category, blaming the candidate for what is a
-    syntax error in the request.
+    and stores an empty rule, so without this check the package writes a candidate
+    whose gene association silently vanished. Uses the same reduction the checks use,
+    so a rule accepted here is a rule they can compare.
     """
     rule = _optional_text(value, "gene_reaction_rule", reaction_id)
     if not rule:
         return ""
     try:
-        parsed = GPR.from_string(rule)
-    except (SyntaxError, TypeError, ValueError) as exc:
+        canonical_gpr(rule)
+    except UncomparableGPRError as exc:
         msg = "gene_reaction_rule is not a parsable boolean expression"
         raise RequestViolationError(msg, reaction_id=reaction_id) from exc
-    if not str(parsed).strip():
-        msg = "gene_reaction_rule is not a parsable boolean expression"
-        raise RequestViolationError(msg, reaction_id=reaction_id)
     return rule
 
 

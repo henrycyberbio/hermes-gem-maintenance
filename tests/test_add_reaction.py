@@ -11,12 +11,16 @@ from cobra.io import read_sbml_model, write_sbml_model
 
 from hermes_gem_maintenance import (
     ReactionRequest,
+    UncomparableGPRError,
     add_reaction,
     canonical_gpr,
     check_candidate,
+    comparable_gpr,
     diff_snapshots,
     semantic_snapshot,
 )
+from hermes_gem_maintenance import checks as checks_module
+from hermes_gem_maintenance.checks import EXCLUDED_FROM_SNAPSHOT
 from hermes_gem_maintenance.errors import (
     InsufficientInformationError,
     RequestViolationError,
@@ -218,7 +222,7 @@ def test_check_detects_changes_beyond_the_request(
     result = check_candidate(model, candidate, request_)
     # THEN the collateral edit is reported; only the requested change is acceptable.
     assert not result.ok
-    assert any("exactly the requested addition" in line for line in result.failed)
+    assert any("no unrelated semantic changes" in line for line in result.failed)
 
 
 # ==== gene rule comparison ====
@@ -277,6 +281,83 @@ def test_check_accepts_a_gene_rule_regrouped_by_sbml(
     assert stored != grouped.gene_reaction_rule
     result = check_candidate(model, reloaded, grouped)
     assert not any("gene rule" in line for line in result.failed)
+
+
+def test_unreducible_gene_rules_are_never_equal_to_each_other() -> None:
+    # GIVEN two rules that do not reduce to boolean logic, naming different genes.
+    # (Regression: a `str(node)` fallback returned `ast.dump`-style text carrying a
+    # memory address, so the value was unstable across runs and every rule COBRApy
+    # failed to parse collapsed to a single shared value.)
+    # WHEN each is put through the total comparison the snapshot uses.
+    left, right = comparable_gpr("gA and not gB"), comparable_gpr("gZ and not gY")
+    # THEN they stay distinct, and distinct from a rule that does reduce.
+    assert left != right
+    assert left != comparable_gpr("gA and gB")
+
+
+def test_canonical_gpr_refuses_a_rule_it_cannot_reduce() -> None:
+    # GIVEN rules COBRApy either fails to parse or parses but cannot evaluate.
+    # WHEN canonicalizing them.
+    # THEN each is refused rather than silently folded into a shared value.
+    for rule in ("not gA", "gA > gB", "gA - gB"):
+        with pytest.raises(UncomparableGPRError):
+            canonical_gpr(rule)
+
+
+def test_snapshot_diff_reports_an_edit_to_a_gene_rule(
+    model: cobra.Model, request_: ReactionRequest
+) -> None:
+    # GIVEN an untouched reaction whose gene rule is swapped for a different one.
+    add_reaction(model, request_)
+    model.reactions.get_by_id("ACKr").gene_reaction_rule = "gA and gB"
+    before = semantic_snapshot(model)
+    model.reactions.get_by_id("ACKr").gene_reaction_rule = "gZ and gY"
+    # WHEN diffing the snapshots.
+    # THEN the edit is reported.
+    assert diff_snapshots(before, semantic_snapshot(model)) != {}
+
+
+def test_a_gene_rule_that_cannot_be_reduced_is_undecided_not_passed(
+    model: cobra.Model,
+    request_: ReactionRequest,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # GIVEN a reduction that refuses the rule in front of it. COBRApy's own getter
+    # cannot currently produce such a rule -- GPR() rejects the AST and the setter
+    # stores an empty rule -- so the refusal is forced here. The check exists as
+    # policy: every deliberate outcome of a public entry point belongs to the error
+    # taxonomy or to a check verdict, never an escaping ValueError.
+    candidate = model.copy()
+    add_reaction(candidate, request_)
+
+    def refuse(rule: str) -> object:
+        raise UncomparableGPRError(rule)
+
+    monkeypatch.setattr(checks_module, "canonical_gpr", refuse)
+    # WHEN checking the candidate.
+    result = check_candidate(model, candidate, request_)
+    # THEN the gene rule is undecided rather than passed, failed, or a traceback.
+    assert any("gene rule" in line for line in result.unverifiable)
+    assert not any("gene rule" in line for line in result.passed)
+    assert not any("gene rule" in line for line in result.failed)
+
+
+def test_passing_check_states_what_it_did_not_compare(
+    model: cobra.Model, request_: ReactionRequest
+) -> None:
+    # GIVEN a clean candidate.
+    # (Regression: EXCLUDED_FROM_SNAPSHOT declared itself the contract but appeared
+    # in no output, so a caller reading `passed` could not see its boundary.)
+    candidate = model.copy()
+    add_reaction(candidate, request_)
+    # WHEN checking it.
+    result = check_candidate(model, candidate, request_)
+    # THEN the verdict names the fields it does not cover.
+    unrelated = next(
+        line for line in result.passed if "no unrelated semantic changes" in line
+    )
+    for excluded in EXCLUDED_FROM_SNAPSHOT:
+        assert excluded in unrelated
 
 
 # ==== review regressions ====
@@ -344,7 +425,7 @@ def test_check_detects_an_edit_to_an_untouched_reaction_name(
     # WHEN checking the candidate.
     result = check_candidate(model, candidate, request_)
     # THEN the unrelated edit is reported.
-    assert any("exactly the requested addition" in line for line in result.failed)
+    assert any("no unrelated semantic changes" in line for line in result.failed)
 
 
 def test_subsystem_the_writer_discards_is_unverifiable_not_failed(
@@ -440,7 +521,7 @@ def test_check_rejects_an_extra_reaction_alongside_the_requested_one(
     # WHEN checking it.
     result = check_candidate(model, candidate, request_)
     # THEN the extra addition fails the invariant.
-    assert any("exactly the requested addition" in line for line in result.failed)
+    assert any("no unrelated semantic changes" in line for line in result.failed)
 
 
 def test_malformed_gene_rule_is_a_request_violation(

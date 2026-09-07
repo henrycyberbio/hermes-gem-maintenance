@@ -44,10 +44,10 @@ class CheckResult:
     def status(self) -> str:
         """One of failed, unverifiable, passed -- in that order of precedence.
 
-        Three states, not two. A check that could not run is not a check that
-        succeeded: a candidate whose participants lack formula or charge has never
-        been tested for mass balance, and reporting that as `passed` would put an
-        unvalidated scientific artifact behind a green light.
+        A check that could not run is not a check that succeeded: a candidate whose
+        participants lack formula or charge has never been tested for mass balance,
+        and reporting that as `passed` would put an unvalidated artifact behind a
+        green light.
         """
         if self.failed:
             return "failed"
@@ -73,16 +73,25 @@ class CheckResult:
 # ==== gene rule comparison ====
 
 
+class UncomparableGPRError(ValueError):
+    """A gene rule that cannot be reduced to boolean logic, so it cannot be compared.
+
+    Distinct from an empty rule. Refusing to compare is the only honest answer: any
+    fallback that maps unreducible input to a single value makes unrelated rules
+    equal to each other.
+    """
+
+
 def canonical_gpr(rule: str) -> object:
-    """Logic-only form of a gene rule.
+    """Logic-only form of a gene rule, or UncomparableGPRError.
 
     COBRApy drops redundant parentheses when writing SBML, so `(A and B) and C`
     returns as `A and B and C`. Comparing rule strings reports those rewrites as
-    modifications -- on a real model, for dozens of untouched reactions. Flatten
-    nested same-operator nodes and sort operands so the comparison sees the boolean
-    logic rather than the syntax.
+    modifications, on a real model for dozens of untouched reactions. Flattening
+    nested same-operator nodes and sorting operands compares the boolean logic
+    instead of the syntax.
 
-    Use this at every site that compares gene rules. Comparing raw strings anywhere
+    Use this at every site that compares gene rules; comparing raw strings anywhere
     reintroduces the bug for candidates that have been through a file.
     """
     if not rule:
@@ -108,34 +117,57 @@ def canonical_gpr(rule: str) -> object:
         if isinstance(node, ast.Module):
             body = node.body
             return walk(body[0] if isinstance(body, list) else body)
-        return str(node)
+        raise UncomparableGPRError(ast.dump(node))
 
-    return walk(GPR.from_string(rule))
+    # GPR.from_string does not raise on malformed input: it logs a parse traceback
+    # and returns an empty GPR, and it raises TypeError for expressions it parses
+    # but cannot evaluate. Both arrive here as unreducible.
+    try:
+        parsed = GPR.from_string(rule)
+    except (SyntaxError, TypeError, ValueError) as exc:
+        raise UncomparableGPRError(rule) from exc
+    if not str(parsed).strip():
+        raise UncomparableGPRError(rule)
+    try:
+        return walk(parsed)
+    except (TypeError, ValueError) as exc:
+        raise UncomparableGPRError(rule) from exc
+
+
+def comparable_gpr(rule: str) -> object:
+    """Canonical form, or a rule-specific marker when the rule cannot be reduced.
+
+    The marker keeps two different unreducible rules unequal, and keeps any of them
+    unequal to every reducible rule. Used where a diff needs a total comparison and
+    has no way to report "undecided".
+    """
+    try:
+        return canonical_gpr(rule)
+    except UncomparableGPRError:
+        return ("unreducible", rule)
 
 
 # ==== semantic comparison ====
 
-# Model content the snapshot deliberately does not compare. Annotations and notes are
-# free-form provenance that COBRApy rewrites on a round trip, so diffing them reports
-# noise on every untouched model. Naming them here is the contract: an edit to one of
-# these is not caught, and "no unrelated semantic changes" claims nothing about them.
+# Model content the snapshot does not compare. Annotations and notes are free-form
+# provenance that COBRApy rewrites on a round trip, so diffing them reports noise on
+# every untouched model. Reported alongside the check verdict, so a caller reading
+# `passed` can see what that verdict does not cover.
 EXCLUDED_FROM_SNAPSHOT = ("annotation", "notes", "SBO terms", "gene names")
 
 
 def semantic_snapshot(model: cobra.Model) -> dict[str, Any]:
     """Structured content only -- SBML layout and element order are not semantics.
 
-    Every field compared here is one the package promises was left alone. Anything
-    omitted can be edited without the "no unrelated semantic changes" check noticing,
-    so the omissions are deliberate and listed in EXCLUDED_FROM_SNAPSHOT rather than
-    left to be discovered.
+    Every field compared here is one the package promises was left alone. Omissions
+    are listed in EXCLUDED_FROM_SNAPSHOT and reported with the verdict.
     """
     return {
         "reactions": {
             r.id: {
                 "stoichiometry": {m.id: c for m, c in r.metabolites.items()},
                 "bounds": list(r.bounds),
-                "gene_reaction_rule": canonical_gpr(r.gene_reaction_rule),
+                "gene_reaction_rule": comparable_gpr(r.gene_reaction_rule),
                 "name": r.name or "",
                 "subsystem": r.subsystem or "",
             }
@@ -184,10 +216,8 @@ def check_candidate(
     result = CheckResult()
 
     # The operation is "add", so absence from the baseline is part of the contract.
-    # Without it a candidate that is a byte-copy of a baseline already containing the
-    # reaction passes every check while having added nothing at all -- and `check`
-    # and `export` are public entry points that cannot assume `add_reaction` ran
-    # first and refused the duplicate.
+    # `check` and `export` are public entry points: neither can assume `add_reaction`
+    # ran first and refused the duplicate.
     if request.reaction_id in base.reactions:
         result.record(
             "reaction absent from baseline",
@@ -219,15 +249,10 @@ def check_candidate(
         detail=str(reaction.bounds),
     )
 
-    # Compared unconditionally, including when the request left the field empty:
-    # a candidate that invents a gene rule, name or subsystem the requester never
-    # asked for is exactly the silent edit these checks exist to catch.
-    result.record(
-        "gene rule matches request",
-        ok=canonical_gpr(reaction.gene_reaction_rule)
-        == canonical_gpr(request.gene_reaction_rule),
-        detail=reaction.gene_reaction_rule or "(none)",
-    )
+    result.record("gene rule matches request", **_gene_rule_verdict(reaction, request))
+
+    # Compared even when the request left the field empty: a candidate that invents a
+    # name or subsystem the requester never asked for is a silent edit.
     result.record(
         "name matches request",
         ok=(reaction.name or "") == request.name,
@@ -240,19 +265,30 @@ def check_candidate(
 
     diff = diff_snapshots(semantic_snapshot(base), semantic_snapshot(candidate))
     unrelated = _unrelated_changes(diff, request.reaction_id)
-    added = diff.get("reactions", {}).get("added", [])
-    # Stated as one positive invariant rather than two negatives. Given the
-    # absence-from-baseline guard above, `added == [id]` cannot fail on its own --
-    # any violation also shows up in `unrelated` -- so the clause is redundant by
-    # construction and a mutation removing it survives the suite. It stays because
-    # the diff shape is the actual contract of an "add" operation, and reading it
-    # here is how a future change to the guard gets caught.
     result.record(
-        "diff is exactly the requested addition",
-        ok=added == [request.reaction_id] and not unrelated,
-        detail=str(unrelated) if unrelated else f"added: {added}",
+        "no unrelated semantic changes",
+        ok=not unrelated,
+        detail=str(unrelated)
+        if unrelated
+        else f"not compared: {', '.join(EXCLUDED_FROM_SNAPSHOT)}",
     )
     return result
+
+
+def _gene_rule_verdict(
+    reaction: cobra.Reaction, request: ReactionRequest
+) -> dict[str, Any]:
+    """Compare gene logic, or report that one side cannot be reduced to logic.
+
+    An unreducible rule is undecided, not wrong. A request never reaches here with
+    one -- ReactionRequest rejects it -- but a candidate read straight off disk can.
+    """
+    stored = reaction.gene_reaction_rule or ""
+    try:
+        same = canonical_gpr(stored) == canonical_gpr(request.gene_reaction_rule)
+    except UncomparableGPRError as exc:
+        return {"ok": None, "detail": f"rule cannot be reduced to logic: {exc}"}
+    return {"ok": same, "detail": stored or "(none)"}
 
 
 def _subsystem_verdict(
@@ -261,10 +297,8 @@ def _subsystem_verdict(
     """Subsystem survives a round trip only if the model carries subsystems at all.
 
     This model's SBML has no subsystem annotations, so COBRApy returns "" for every
-    reaction including untouched ones. Failing a requested subsystem against that
-    would report the writer's format as a violation by the candidate. An empty stored
-    value against a requested one is undecidable, not wrong; anything else is a real
-    comparison.
+    reaction including untouched ones. An empty stored value against a requested one
+    is undecidable, not wrong; anything else is a real comparison.
     """
     stored = reaction.subsystem or ""
     if stored == request.subsystem:

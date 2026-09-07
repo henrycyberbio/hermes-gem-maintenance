@@ -14,14 +14,8 @@ import fire
 
 from hermes_gem_maintenance import (
     ReactionRequest,
-    add_reaction,
-    check_candidate,
-    diff_snapshots,
-    file_digest,
-    load_model,
-    save_candidate,
-    semantic_snapshot,
-    verify_digest,
+    build_candidate,
+    publish_deliverable,
 )
 from hermes_gem_maintenance.errors import GemMaintenanceError, ModelIntegrityError
 
@@ -38,17 +32,15 @@ class Walkthrough:
     """Run the worked example end to end."""
 
     def run(self, output_dir: str = "") -> str:
-        """Read the frozen model, add the reaction, check it, and write a candidate.
+        """Build a candidate from the frozen model, then publish the deliverable.
 
         Args:
-            output_dir: Destination for the candidate model and checks. Defaults to a
-                runs/ subdirectory named after the reaction.
+            output_dir: Destination for the candidate, deliverable and checks.
+                Defaults to a runs/ subdirectory named after the reaction.
         """
         request = ReactionRequest.from_dict(
             json.loads(REACTION.read_text(encoding="utf-8"))
         )
-        manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        before = verify_digest(BASE_MODEL, manifest["artifact"]["sha256"])
 
         destination = (
             Path(output_dir)
@@ -60,44 +52,34 @@ class Walkthrough:
             raise ModelIntegrityError(msg, path=destination.name)
         destination.mkdir(parents=True, exist_ok=True)
 
-        base = load_model(BASE_MODEL)
-        candidate = base.copy()
-        add_reaction(candidate, request)
-        result = check_candidate(base, candidate, request)
-
-        candidate_path = save_candidate(
-            candidate, destination / "candidate.xml", protected=BASE_MODEL
+        built = build_candidate(
+            BASE_MODEL,
+            request,
+            destination / "candidate.xml",
+            manifest=MANIFEST,
+        )
+        published = publish_deliverable(
+            BASE_MODEL,
+            built.candidate,
+            request,
+            destination / "deliverable.xml",
+            manifest=MANIFEST,
+            candidate_sha256=built.candidate_sha256,
         )
 
-        # Re-check from disk: serialization is where silent normalization surfaces.
-        reloaded = load_model(candidate_path)
-        roundtrip = diff_snapshots(
-            semantic_snapshot(candidate), semantic_snapshot(reloaded)
-        )
-        result.record(
-            "survives SBML roundtrip",
-            ok=not roundtrip,
-            detail=str(roundtrip or "identical"),
-        )
-        result.record(
-            "input unchanged",
-            ok=file_digest(BASE_MODEL) == before,
-            detail=before[:16],
-        )
-
-        report = {
-            "reaction_id": request.reaction_id,
-            "input_sha256": before,
-            "candidate_sha256": file_digest(candidate_path),
-            **result.as_dict(),
-        }
+        report = {**built.as_dict(), **published.as_dict()}
         checks_path = destination / "checks.json"
         checks_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
-        lines = [f"status: {report['status']}", f"artifacts: {destination}"]
-        lines += [f"  pass  {item}" for item in result.passed]
-        lines += [f"  FAIL  {item}" for item in result.failed]
-        lines += [f"  n/a   {item}" for item in result.unverifiable]
+        checks = published.checks
+        lines = [
+            f"status: {checks['status']}",
+            f"artifacts: {destination}",
+            f"baseline: {published.baseline_verified_against}",
+        ]
+        lines += [f"  pass  {item}" for item in checks["passed"]]
+        lines += [f"  FAIL  {item}" for item in checks["failed"]]
+        lines += [f"  n/a   {item}" for item in checks["unverifiable"]]
         return "\n".join(lines)
 
 

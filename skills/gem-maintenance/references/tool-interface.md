@@ -205,7 +205,7 @@ uv run hermes-gem-maintenance check --model=MODEL --candidate=CAND.xml --reactio
     "name matches request: Demonstration ATP hydrolysis",
     "subsystem matches request: (none)",
     "mass and charge balance: balanced",
-    "diff is exactly the requested addition: added: ['DEMO_ATPH']"
+    "no unrelated semantic changes: not compared: annotation, notes, SBO terms, gene names"
   ]
 }
 ```
@@ -320,10 +320,14 @@ from hermes_gem_maintenance import (
 ```
 
 `build_candidate` and `publish_deliverable` are what the CLI's `add_reaction` and
-`export` call. Use them rather than assembling `save_candidate` yourself: the source
-verification, staged write, re-check of the published bytes and no-clobber publication
-live inside them, so hand-rolling the sequence produces a weaker artifact that looks
-the same.
+`export` call, and they are the only supported way to write a file. Source
+verification, the staged write, the re-check of the published bytes and no-clobber
+publication live inside them, so a hand-rolled sequence produces a weaker artifact
+that looks the same.
+
+Pass the `candidate_sha256` from `build_candidate` into `publish_deliverable` to pin
+the candidate across the two commands; without it the candidate is only pinned for the
+duration of the export.
 
 `require_unique_metabolite` raises `InsufficientInformationError` with the candidates
 listed rather than returning a best guess — the same refusal the CLI reports.

@@ -119,18 +119,15 @@ def save_candidate(model: cobra.Model, destination: Path, *, protected: Path) ->
 def staged_write(destination: Path, *, protected: Path) -> Iterator[Path]:
     """Yield a private temporary path that becomes `destination` on a clean exit.
 
-    A deliverable is a claim that the run succeeded, so the final path must not exist
-    until every check has passed. Three properties matter and each was wrong in an
-    earlier version:
+    A deliverable is a claim that the run succeeded, so the final path does not exist
+    until every check has passed. Three properties hold:
 
-    - The staging name is unique per call. A fixed `.name.partial` was deleted on
-      entry, which destroyed a concurrent run's work in progress, and could delete a
-      *baseline* that happened to carry that name.
-    - Publication is no-clobber. `Path.replace()` overwrites, so checking the
-      destination on entry and replacing on exit still clobbered a file created in
-      between -- the refusal to overwrite evidence was not actually enforced.
-    - The staging file is removed on every exit path, so a failure leaves neither a
-      partial file nor anything at the destination.
+    - The staging name is unique per call, so concurrent runs cannot delete each
+      other's work in progress or a baseline that happens to share the name.
+    - Publication is no-clobber. `Path.replace()` overwrites, so a destination created
+      between the entry check and the exit would be silently replaced.
+    - The staging file is removed on every exit path, leaving neither a partial file
+      nor anything at the destination.
     """
     destination = _guard_destination(destination, protected)
     destination.parent.mkdir(parents=True, exist_ok=True)

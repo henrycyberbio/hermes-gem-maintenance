@@ -553,9 +553,8 @@ def test_python_api_publishes_with_the_same_guarantees_as_the_cli(
     baseline: Path, request_file: Path, tmp_path: Path
 ) -> None:
     # GIVEN a Python caller using the library rather than the CLI.
-    # (Regression: staging, source verification and re-checking lived inside the CLI
-    # methods, so a Python caller could only reach the weaker save_candidate() path
-    # and silently got none of the invariants the project advertises.)
+    # (Regression: a library caller reached only save_candidate(), which performs no
+    # staging, source verification or re-checking.)
     spec = json.loads(request_file.read_text(encoding="utf-8"))
     request = ReactionRequest.from_dict(spec)
     manifest = tmp_path / "source.json"
@@ -577,6 +576,61 @@ def test_python_api_publishes_with_the_same_guarantees_as_the_cli(
     assert "source manifest" in built.baseline_verified_against
     assert published.checks["status"] == "passed"
     assert (tmp_path / "out.xml").exists()
+
+
+def test_export_refuses_a_candidate_that_changed_since_it_was_built(
+    baseline: Path, request_file: Path, tmp_path: Path
+) -> None:
+    # GIVEN a candidate whose bytes were replaced after its digest was recorded.
+    # (Regression: the baseline was pinned by digest but the candidate was not, so
+    # the file could be swapped between building it and publishing it.)
+    request = ReactionRequest.from_dict(
+        json.loads(request_file.read_text(encoding="utf-8"))
+    )
+    built = build_candidate(baseline, request, tmp_path / "cand.xml")
+    (tmp_path / "cand.xml").write_text("not a model", encoding="utf-8")
+    # WHEN exporting it against the digest that was reported at build time.
+    # THEN it is refused as an integrity failure and nothing is delivered.
+    with pytest.raises(ModelIntegrityError):
+        publish_deliverable(
+            baseline,
+            tmp_path / "cand.xml",
+            request,
+            tmp_path / "out.xml",
+            candidate_sha256=built.candidate_sha256,
+        )
+    assert not (tmp_path / "out.xml").exists()
+
+
+def test_export_parses_the_candidate_once(
+    baseline: Path, request_file: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # GIVEN a candidate built from the baseline.
+    # (Regression: the candidate was read three times, so the checked bytes, the
+    # written bytes and the compared bytes could each come from a different file.)
+    request = ReactionRequest.from_dict(
+        json.loads(request_file.read_text(encoding="utf-8"))
+    )
+    built = build_candidate(baseline, request, tmp_path / "cand.xml")
+    reads: list[str] = []
+    original = publish_module.load_model
+
+    def spy(path: Path) -> cobra.Model:
+        reads.append(Path(path).name)
+        return original(path)
+
+    monkeypatch.setattr(publish_module, "load_model", spy)
+    # WHEN exporting it.
+    publish_deliverable(
+        baseline,
+        built.candidate,
+        request,
+        tmp_path / "out.xml",
+        candidate_sha256=built.candidate_sha256,
+    )
+    # THEN the candidate is parsed exactly once, and so is each other artifact.
+    assert reads.count("cand.xml") == 1
+    assert len(reads) == 3
 
 
 def test_export_reports_a_failing_candidate_as_distinct_from_a_damaged_baseline(

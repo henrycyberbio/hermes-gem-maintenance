@@ -160,6 +160,7 @@ class Cli:
         output: str,
         source_manifest: str = "",
         expected_sha256: str = "",
+        candidate_sha256: str = "",
     ) -> str:
         """Re-check a candidate and write the deliverable only if it passes.
 
@@ -177,6 +178,8 @@ class Cli:
             source_manifest: Path to the model's source manifest. When given, the
                 baseline must match the SHA-256 it records.
             expected_sha256: The approved digest, if there is no manifest.
+            candidate_sha256: The digest `add_reaction` reported for the candidate.
+                When given, the candidate must still match it.
         """
         request = ReactionRequest.from_dict(_read_json(Path(reaction)))
         result = publish_deliverable(
@@ -186,6 +189,7 @@ class Cli:
             Path(output),
             manifest=Path(source_manifest) if source_manifest else None,
             expected_sha256=expected_sha256,
+            candidate_sha256=candidate_sha256,
         )
         return _emit(result.as_dict())
 

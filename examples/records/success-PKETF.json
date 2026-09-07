@@ -17,7 +17,7 @@
       "name matches request: Phosphoketolase (fructose-6-phosphate utilizing)",
       "subsystem matches request: (none)",
       "mass and charge balance: balanced",
-      "diff is exactly the requested addition: added: ['PKETF']"
+      "no unrelated semantic changes: not compared: annotation, notes, SBO terms, gene names"
     ],
     "reaction_id": "PKETF",
     "status": "passed",
