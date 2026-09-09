@@ -13,12 +13,12 @@ from pathlib import Path
 import fire
 
 from hermes_gem_maintenance import (
-    ReactionRequest,
     add_reaction,
     check_candidate,
     diff_snapshots,
     file_digest,
     load_model,
+    parse_changeset,
     save_candidate,
     semantic_snapshot,
     verify_digest,
@@ -29,7 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE = REPO_ROOT / "examples" / "add-reaction"
 BASE_MODEL = EXAMPLE / "model" / "iEC1372_W3110.xml"
 MANIFEST = EXAMPLE / "model" / "iEC1372_W3110.source.json"
-REACTION = EXAMPLE / "reaction.json"
+CHANGESET = EXAMPLE / "changeset.json"
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +44,9 @@ class Walkthrough:
             output_dir: Destination for the candidate model and checks. Defaults to a
                 runs/ subdirectory named after the reaction.
         """
-        request = ReactionRequest.from_dict(
-            json.loads(REACTION.read_text(encoding="utf-8"))
+        request = parse_changeset(
+            json.loads(CHANGESET.read_text(encoding="utf-8")),
+            expected_type="add_reaction",
         )
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
         before = verify_digest(BASE_MODEL, manifest["artifact"]["sha256"])

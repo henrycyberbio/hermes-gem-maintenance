@@ -43,18 +43,22 @@ Each subcommand prints JSON and exits non-zero on a deliberate error.
 ```bash
 uv run hermes-gem-maintenance inspect  --model=MODEL [--reaction=ID | --metabolite=ID]
 uv run hermes-gem-maintenance resolve  --model=MODEL --query=NAME [--compartment=C]
-uv run hermes-gem-maintenance add_reaction --model=MODEL --reaction=SPEC.json --output=CAND.xml [--source_manifest=SRC.json]
-uv run hermes-gem-maintenance delete_reaction --model=MODEL --reaction=SPEC.json --output=CAND.xml [--source_manifest=SRC.json]
-uv run hermes-gem-maintenance check    --model=MODEL --candidate=CAND.xml --reaction=SPEC.json [--operation=add_reaction|delete_reaction]
-uv run hermes-gem-maintenance export   --model=MODEL --candidate=CAND.xml --reaction=SPEC.json --output=OUT.xml [--source_manifest=SRC.json] [--operation=add_reaction|delete_reaction]
+uv run hermes-gem-maintenance add_reaction --model=MODEL --changeset=CHANGESET.json --output=CAND.xml [--source_manifest=SRC.json]
+uv run hermes-gem-maintenance delete_reaction --model=MODEL --changeset=CHANGESET.json --output=CAND.xml [--source_manifest=SRC.json]
+uv run hermes-gem-maintenance check    --model=MODEL --candidate=CAND.xml --changeset=CHANGESET.json
+uv run hermes-gem-maintenance export   --model=MODEL --candidate=CAND.xml --changeset=CHANGESET.json --output=OUT.xml [--source_manifest=SRC.json]
 ```
 
-`delete_reaction` mirrors `add_reaction`: the definition is `{"reaction_id": "ID"}`,
-nothing more, and it refuses an identifier absent from the baseline. `check` and
-`export` default to `--operation=add_reaction`; pass `--operation=delete_reaction`
-to validate a removal candidate against the inverted invariant (the reaction must
-be present in the baseline and absent from the candidate, rather than the other
-way around).
+Every operation -- addition or deletion -- is described the same way: a changeset
+file, `{"operations": [{"type": "add_reaction" | "delete_reaction", ...}]}`. MVP
+scope holds the array to exactly one operation; a changeset of any other length is
+refused rather than silently truncated. `delete_reaction`'s operation is `{"type":
+"delete_reaction", "reaction_id": "ID"}`, nothing more -- there is no stoichiometry
+or bounds to specify for a removal, and it refuses an identifier absent from the
+baseline. `check` and `export` take no separate operation argument: the
+changeset's own `type` field selects which invariant the candidate is checked
+against, so there is nothing for a caller to keep in agreement with the file
+by hand.
 
 `resolve` returns every plausible match with the reason it matched and never picks a
 winner; choosing between candidates is the caller's judgment. `check` runs the
@@ -96,7 +100,7 @@ Errors carry a category so a caller can tell them apart without parsing prose:
 | `model_integrity` | A baseline digest mismatch, or a write would clobber it | Stop; the inputs are not what they claim |
 | `dependency_missing` | `export` requires MEMOTE, which is not installed | Install `uv sync --extra memote`; the request and candidate may be fine |
 
-See [`examples/add-reaction/`](examples/add-reaction/) for the request and its
+See [`examples/add-reaction/`](examples/add-reaction/) for the changeset and its
 evidence, [`examples/scenarios/`](examples/scenarios/) for requests the workflow is
 expected to refuse or correct, [`examples/records/`](examples/records/) for the CLI
 output each one produces, and [`docs/case-selection.md`](docs/case-selection.md) for
@@ -122,7 +126,7 @@ uvx ruff check .
 | `src/hermes_gem_maintenance/` | Package API and CLI |
 | `skills/gem-maintenance/` | Hermes skill driving the CLI from a request |
 | `scripts/` | Walkthrough and citation renderer |
-| `examples/add-reaction/` | Frozen model, reaction definition, evidence |
+| `examples/add-reaction/` | Frozen model, changeset, evidence |
 | `examples/scenarios/` | Requests the workflow should refuse or correct |
 | `examples/records/` | Recorded CLI output for the example and scenarios |
 | `docs/` | Case selection, reference data, citation style |

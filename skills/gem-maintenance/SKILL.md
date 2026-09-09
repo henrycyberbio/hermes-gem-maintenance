@@ -25,10 +25,10 @@ question for the requester, not a value for you to choose.
 ```bash
 uv run hermes-gem-maintenance inspect  --model=MODEL [--reaction=ID | --metabolite=ID]
 uv run hermes-gem-maintenance resolve  --model=MODEL --query=NAME [--compartment=C]
-uv run hermes-gem-maintenance add_reaction --model=MODEL --reaction=SPEC.json --output=CAND.xml
-uv run hermes-gem-maintenance delete_reaction --model=MODEL --reaction=SPEC.json --output=CAND.xml
-uv run hermes-gem-maintenance check    --model=MODEL --candidate=CAND.xml --reaction=SPEC.json [--operation=add_reaction|delete_reaction]
-uv run hermes-gem-maintenance export   --model=MODEL --candidate=CAND.xml --reaction=SPEC.json --output=OUT.xml [--operation=add_reaction|delete_reaction]
+uv run hermes-gem-maintenance add_reaction --model=MODEL --changeset=CHANGESET.json --output=CAND.xml
+uv run hermes-gem-maintenance delete_reaction --model=MODEL --changeset=CHANGESET.json --output=CAND.xml
+uv run hermes-gem-maintenance check    --model=MODEL --candidate=CAND.xml --changeset=CHANGESET.json
+uv run hermes-gem-maintenance export   --model=MODEL --candidate=CAND.xml --changeset=CHANGESET.json --output=OUT.xml
 ```
 
 Every command prints JSON and exits non-zero on a deliberate error. Errors carry a

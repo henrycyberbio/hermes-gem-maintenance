@@ -17,9 +17,11 @@
       "name matches request: Phosphoketolase (fructose-6-phosphate utilizing)",
       "subsystem matches request: (none)",
       "mass and charge balance: balanced",
+      "candidate is solvable under its own bounds and objective: optimal, objective=0.9823963461342986",
       "diff is exactly the requested addition: added: ['PKETF']"
     ],
     "reaction_id": "PKETF",
+    "scope": "structural",
     "status": "passed",
     "unverifiable": []
   }

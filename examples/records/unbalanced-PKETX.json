@@ -1,6 +1,7 @@
 {
   "as_written": {
     "definition": {
+      "type": "add_reaction",
       "reaction_id": "PKETX",
       "metabolites": {
         "xu5p__D_c": -1,
@@ -24,15 +25,18 @@
         "gene rule matches request: xfp",
         "name matches request: (none)",
         "subsystem matches request: (none)",
+        "candidate is solvable under its own bounds and objective: optimal, objective=0.9823963461342976",
         "diff is exactly the requested addition: added: ['PKETX']"
       ],
       "reaction_id": "PKETX",
+      "scope": "structural",
       "status": "failed",
       "unverifiable": []
     }
   },
   "corrected": {
     "definition": {
+      "type": "add_reaction",
       "reaction_id": "PKETX",
       "metabolites": {
         "xu5p__D_c": -1,
@@ -56,9 +60,11 @@
         "name matches request: (none)",
         "subsystem matches request: (none)",
         "mass and charge balance: balanced",
+        "candidate is solvable under its own bounds and objective: optimal, objective=0.9823963461343127",
         "diff is exactly the requested addition: added: ['PKETX']"
       ],
       "reaction_id": "PKETX",
+      "scope": "structural",
       "status": "passed",
       "unverifiable": []
     }

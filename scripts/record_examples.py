@@ -23,16 +23,22 @@ logger = logging.getLogger(__name__)
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MODEL = REPO_ROOT / "examples" / "add-reaction" / "model" / "iEC1372_W3110.xml"
 MANIFEST = MODEL.with_suffix(".source.json")
-REACTION = REPO_ROOT / "examples" / "add-reaction" / "reaction.json"
+CHANGESET = REPO_ROOT / "examples" / "add-reaction" / "changeset.json"
 RECORDS = REPO_ROOT / "examples" / "records"
 
 PKETX_AS_WRITTEN: dict[str, Any] = {
+    "type": "add_reaction",
     "reaction_id": "PKETX",
     "metabolites": {"xu5p__D_c": -1, "pi_c": -1, "actp_c": 1, "g3p_c": 1},
     "lower_bound": 0.0,
     "upper_bound": 1000.0,
     "gene_reaction_rule": "xfp",
 }
+
+
+def _changeset(operation: dict[str, Any]) -> dict[str, Any]:
+    """Wrap one operation in the envelope every changeset file must carry."""
+    return {"operations": [operation]}
 
 
 def _cli(*args: str) -> dict[str, Any]:
@@ -71,7 +77,7 @@ def write() -> None:
             "add": _cli(
                 "add_reaction",
                 f"--model={MODEL}",
-                f"--reaction={REACTION}",
+                f"--changeset={CHANGESET}",
                 f"--output={candidate}",
                 f"--source_manifest={MANIFEST}",
             ),
@@ -79,7 +85,7 @@ def write() -> None:
                 "check",
                 f"--model={MODEL}",
                 f"--candidate={candidate}",
-                f"--reaction={REACTION}",
+                f"--changeset={CHANGESET}",
             ),
         }
         _write("success-PKETF.json", success)
@@ -99,23 +105,23 @@ def write() -> None:
         corrected["metabolites"]["h2o_c"] = 1
         unbalanced: dict[str, Any] = {}
         pairs = (("as_written", PKETX_AS_WRITTEN), ("corrected", corrected))
-        for tag, definition in pairs:
+        for tag, operation in pairs:
             spec = scratch / f"{tag}.json"
-            spec.write_text(json.dumps(definition), encoding="utf-8")
+            spec.write_text(json.dumps(_changeset(operation)), encoding="utf-8")
             model_out = scratch / f"{tag}.xml"
             _cli(
                 "add_reaction",
                 f"--model={MODEL}",
-                f"--reaction={spec}",
+                f"--changeset={spec}",
                 f"--output={model_out}",
             )
             unbalanced[tag] = {
-                "definition": definition,
+                "definition": operation,
                 "check": _cli(
                     "check",
                     f"--model={MODEL}",
                     f"--candidate={model_out}",
-                    f"--reaction={spec}",
+                    f"--changeset={spec}",
                 ),
             }
         _write("unbalanced-PKETX.json", unbalanced)

@@ -485,10 +485,10 @@ def test_valid_gene_rules_are_still_accepted(spec: dict[str, object]) -> None:
 
 
 def test_example_reaction_matches_the_frozen_model() -> None:
-    # GIVEN the committed reaction definition for the example case.
+    # GIVEN the committed changeset for the example case.
     root = Path(__file__).resolve().parents[1]
-    reaction_file = root / "examples/add-reaction/reaction.json"
-    spec = json.loads(reaction_file.read_text(encoding="utf-8"))
+    changeset_file = root / "examples/add-reaction/changeset.json"
+    spec = json.loads(changeset_file.read_text(encoding="utf-8"))["operations"][0]
     # WHEN reading its declared fields.
     # THEN it names an irreversible forward reaction with a documented basis.
     assert spec["reaction_id"] == "PKETF"

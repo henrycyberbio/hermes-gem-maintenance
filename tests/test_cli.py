@@ -27,6 +27,14 @@ from hermes_gem_maintenance.inspect import require_unique_metabolite
 from hermes_gem_maintenance.model_io import file_digest, load_model
 from hermes_gem_maintenance.publish import build_candidate, publish_deliverable
 
+
+def _changeset_file(path: Path, operation: dict[str, object]) -> Path:
+    """Write one operation wrapped in the envelope every changeset file carries."""
+    path.write_text(
+        json.dumps({"operations": [operation]}), encoding="utf-8"
+    )
+    return path
+
 # ==== fixtures ====
 
 
@@ -79,21 +87,18 @@ def baseline(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def request_file(tmp_path: Path) -> Path:
-    """A balanced, unambiguous reaction request."""
-    path = tmp_path / "reaction.json"
-    path.write_text(
-        json.dumps(
-            {
-                "reaction_id": "NEWRXN",
-                "metabolites": {"a_c": -1, "b_c": 1},
-                "lower_bound": 0.0,
-                "upper_bound": 1000.0,
-                "gene_reaction_rule": "geneA",
-            }
-        ),
-        encoding="utf-8",
+    """A balanced, unambiguous add_reaction changeset."""
+    return _changeset_file(
+        tmp_path / "changeset.json",
+        {
+            "type": "add_reaction",
+            "reaction_id": "NEWRXN",
+            "metabolites": {"a_c": -1, "b_c": 1},
+            "lower_bound": 0.0,
+            "upper_bound": 1000.0,
+            "gene_reaction_rule": "geneA",
+        },
     )
-    return path
 
 
 @pytest.fixture
@@ -205,7 +210,7 @@ def test_add_reaction_writes_a_candidate_and_preserves_the_baseline(
     # WHEN adding the reaction.
     payload = json.loads(
         Cli().add_reaction(
-            model=str(baseline), reaction=str(request_file), output=str(output)
+            model=str(baseline), changeset=str(request_file), output=str(output)
         )
     )
     # THEN a candidate exists and the baseline bytes are identical.
@@ -223,7 +228,7 @@ def test_add_reaction_refuses_to_write_over_the_baseline(
     # THEN it refuses and the baseline is untouched.
     with pytest.raises(ModelIntegrityError, match="baseline"):
         Cli().add_reaction(
-            model=str(baseline), reaction=str(request_file), output=str(baseline)
+            model=str(baseline), changeset=str(request_file), output=str(baseline)
         )
     assert file_digest(baseline) == before
 
@@ -232,35 +237,32 @@ def test_add_reaction_distinguishes_a_violation_from_missing_information(
     baseline: Path, tmp_path: Path
 ) -> None:
     # GIVEN one request that conflicts with the model and one that is incomplete.
-    conflict = tmp_path / "conflict.json"
-    conflict.write_text(
-        json.dumps(
-            {
-                "reaction_id": "EXIST",
-                "metabolites": {"a_c": -1, "b_c": 1},
-                "lower_bound": 0.0,
-                "upper_bound": 1000.0,
-            }
-        ),
-        encoding="utf-8",
+    conflict = _changeset_file(
+        tmp_path / "conflict.json",
+        {
+            "type": "add_reaction",
+            "reaction_id": "EXIST",
+            "metabolites": {"a_c": -1, "b_c": 1},
+            "lower_bound": 0.0,
+            "upper_bound": 1000.0,
+        },
     )
-    incomplete = tmp_path / "incomplete.json"
-    incomplete.write_text(
-        json.dumps({"reaction_id": "NEWRXN", "metabolites": {"a_c": -1}}),
-        encoding="utf-8",
+    incomplete = _changeset_file(
+        tmp_path / "incomplete.json",
+        {"type": "add_reaction", "reaction_id": "NEWRXN", "metabolites": {"a_c": -1}},
     )
     # WHEN submitting each.
     # THEN the categories differ: one needs a different request, one needs more facts.
     with pytest.raises(RequestViolationError):
         Cli().add_reaction(
             model=str(baseline),
-            reaction=str(conflict),
+            changeset=str(conflict),
             output=str(tmp_path / "a.xml"),
         )
     with pytest.raises(InsufficientInformationError):
         Cli().add_reaction(
             model=str(baseline),
-            reaction=str(incomplete),
+            changeset=str(incomplete),
             output=str(tmp_path / "b.xml"),
         )
 
@@ -273,13 +275,14 @@ def test_delete_reaction_writes_a_candidate_and_preserves_the_baseline(
 ) -> None:
     # GIVEN a baseline model containing EXIST, and its digest before the command runs.
     before = file_digest(baseline)
-    delete_spec = tmp_path / "delete.json"
-    delete_spec.write_text(json.dumps({"reaction_id": "EXIST"}), encoding="utf-8")
+    delete_spec = _changeset_file(
+        tmp_path / "delete.json", {"type": "delete_reaction", "reaction_id": "EXIST"}
+    )
     output = tmp_path / "candidate.xml"
     # WHEN deleting the reaction.
     payload = json.loads(
         Cli().delete_reaction(
-            model=str(baseline), reaction=str(delete_spec), output=str(output)
+            model=str(baseline), changeset=str(delete_spec), output=str(output)
         )
     )
     # THEN a candidate exists, the reaction is gone, and the baseline is untouched.
@@ -293,51 +296,55 @@ def test_delete_reaction_refuses_an_identifier_absent_from_the_model(
     baseline: Path, tmp_path: Path
 ) -> None:
     # GIVEN a request naming a reaction the baseline does not have.
-    delete_spec = tmp_path / "delete.json"
-    delete_spec.write_text(json.dumps({"reaction_id": "NOPE"}), encoding="utf-8")
+    delete_spec = _changeset_file(
+        tmp_path / "delete.json", {"type": "delete_reaction", "reaction_id": "NOPE"}
+    )
     # WHEN deleting it.
     # THEN it is refused as a request violation, not written as an empty diff.
     with pytest.raises(RequestViolationError, match="does not exist"):
         Cli().delete_reaction(
             model=str(baseline),
-            reaction=str(delete_spec),
+            changeset=str(delete_spec),
             output=str(tmp_path / "candidate.xml"),
         )
 
 
-def test_check_and_export_accept_a_deletion_via_the_operation_argument(
+def test_check_and_export_accept_a_deletion_via_its_changeset_type(
     deletable_baseline: Path, tmp_path: Path
 ) -> None:
     # GIVEN a candidate produced by delete_reaction, on a baseline where EXIST has a
     # redundant twin (BYPASS) so removing it does not strand anything else.
-    delete_spec = tmp_path / "delete.json"
-    delete_spec.write_text(json.dumps({"reaction_id": "EXIST"}), encoding="utf-8")
+    delete_spec = _changeset_file(
+        tmp_path / "delete.json", {"type": "delete_reaction", "reaction_id": "EXIST"}
+    )
     candidate = tmp_path / "candidate.xml"
     Cli().delete_reaction(
-        model=str(deletable_baseline), reaction=str(delete_spec), output=str(candidate)
+        model=str(deletable_baseline),
+        changeset=str(delete_spec),
+        output=str(candidate),
     )
-    # WHEN checking it with operation="delete_reaction".
+    # WHEN checking it. The changeset's own operation type ("delete_reaction")
+    # selects the invariant; there is no separate argument that could disagree
+    # with it.
     checked = json.loads(
         Cli().check(
             model=str(deletable_baseline),
             candidate=str(candidate),
-            reaction=str(delete_spec),
-            operation="delete_reaction",
+            changeset=str(delete_spec),
         )
     )
     # THEN it passes, using the removal invariant rather than the addition one.
     assert checked["status"] == "passed"
     assert checked["reaction_id"] == "EXIST"
 
-    # WHEN exporting it with the same operation.
+    # WHEN exporting it with the same changeset.
     delivered = tmp_path / "delivered.xml"
     exported = json.loads(
         Cli().export(
             model=str(deletable_baseline),
             candidate=str(candidate),
-            reaction=str(delete_spec),
+            changeset=str(delete_spec),
             output=str(delivered),
-            operation="delete_reaction",
         )
     )
     # THEN it is delivered, and MEMOTE ran (this baseline is small enough that it
@@ -353,42 +360,42 @@ def test_check_rejects_an_add_candidate_when_asked_to_check_a_deletion(
     # GIVEN a candidate produced by add_reaction (adds NEWRXN, EXIST still present).
     candidate = tmp_path / "candidate.xml"
     Cli().add_reaction(
-        model=str(baseline), reaction=str(request_file), output=str(candidate)
+        model=str(baseline), changeset=str(request_file), output=str(candidate)
     )
-    # WHEN checking it as a deletion of a reaction that was never requested this way.
-    delete_spec = tmp_path / "delete.json"
-    delete_spec.write_text(json.dumps({"reaction_id": "EXIST"}), encoding="utf-8")
+    # WHEN checking it against a delete_reaction changeset naming a reaction that
+    # was never removed this way.
+    delete_spec = _changeset_file(
+        tmp_path / "delete.json", {"type": "delete_reaction", "reaction_id": "EXIST"}
+    )
     payload = json.loads(
         Cli().check(
             model=str(baseline),
             candidate=str(candidate),
-            reaction=str(delete_spec),
-            operation="delete_reaction",
+            changeset=str(delete_spec),
         )
     )
     # THEN it fails: EXIST is still present in the candidate, so the requested
-    # removal never happened -- checking the wrong operation type against a real
-    # candidate does not coincidentally pass.
+    # removal never happened -- checking against the wrong changeset does not
+    # coincidentally pass.
     assert payload["status"] == "failed"
     assert any("absent from candidate" in line for line in payload["failed"])
 
 
-def test_operation_argument_rejects_an_unknown_value(
-    baseline: Path, request_file: Path, tmp_path: Path
+def test_changeset_refuses_an_operation_type_this_package_does_not_implement(
+    baseline: Path, tmp_path: Path
 ) -> None:
-    # GIVEN a candidate and an operation value this package does not implement.
-    candidate = tmp_path / "candidate.xml"
-    Cli().add_reaction(
-        model=str(baseline), reaction=str(request_file), output=str(candidate)
+    # GIVEN a changeset naming an operation type this package does not implement.
+    bogus = _changeset_file(
+        tmp_path / "bogus.json", {"type": "rename_reaction", "reaction_id": "EXIST"}
     )
-    # WHEN checking it with a bogus operation.
-    # THEN it is refused rather than silently defaulting to add_reaction.
+    # WHEN checking it.
+    # THEN it is refused, naming the unsupported type, rather than silently treated
+    # as one of the implemented kinds.
     with pytest.raises(RequestViolationError, match="rename_reaction"):
         Cli().check(
             model=str(baseline),
-            candidate=str(candidate),
-            reaction=str(request_file),
-            operation="rename_reaction",
+            candidate=str(baseline),
+            changeset=str(bogus),
         )
 
 
@@ -401,14 +408,14 @@ def test_check_passes_a_candidate_produced_by_add_reaction(
     # GIVEN a candidate written by the add command and reloaded from disk.
     candidate = tmp_path / "candidate.xml"
     Cli().add_reaction(
-        model=str(baseline), reaction=str(request_file), output=str(candidate)
+        model=str(baseline), changeset=str(request_file), output=str(candidate)
     )
     # WHEN checking it.
     payload = json.loads(
         Cli().check(
             model=str(baseline),
             candidate=str(candidate),
-            reaction=str(request_file),
+            changeset=str(request_file),
         )
     )
     # THEN it passes; the roundtrip through SBML must not invalidate a good candidate.
@@ -425,10 +432,10 @@ def test_export_refuses_to_deliver_a_failing_candidate(
     # GIVEN a candidate that no longer matches the request.
     candidate = tmp_path / "candidate.xml"
     Cli().add_reaction(
-        model=str(baseline), reaction=str(request_file), output=str(candidate)
+        model=str(baseline), changeset=str(request_file), output=str(candidate)
     )
     tampered = json.loads(request_file.read_text(encoding="utf-8"))
-    tampered["metabolites"] = {"a_c": -2, "b_c": 1}
+    tampered["operations"][0]["metabolites"] = {"a_c": -2, "b_c": 1}
     request_file.write_text(json.dumps(tampered), encoding="utf-8")
     delivered = tmp_path / "delivered.xml"
     # WHEN exporting it.
@@ -437,7 +444,7 @@ def test_export_refuses_to_deliver_a_failing_candidate(
         Cli().export(
             model=str(baseline),
             candidate=str(candidate),
-            reaction=str(request_file),
+            changeset=str(request_file),
             output=str(delivered),
         )
     assert not delivered.exists()
@@ -456,7 +463,7 @@ def test_export_refuses_a_candidate_whose_checks_could_not_be_decided(
     candidate = tmp_path / "candidate.xml"
     Cli().add_reaction(
         model=str(unverifiable_baseline),
-        reaction=str(request_file),
+        changeset=str(request_file),
         output=str(candidate),
     )
     delivered = tmp_path / "delivered.xml"
@@ -466,7 +473,7 @@ def test_export_refuses_a_candidate_whose_checks_could_not_be_decided(
         Cli().export(
             model=str(unverifiable_baseline),
             candidate=str(candidate),
-            reaction=str(request_file),
+            changeset=str(request_file),
             output=str(delivered),
         )
     assert not delivered.exists()
@@ -483,7 +490,7 @@ def test_check_reports_unverifiable_as_its_own_status(
     candidate = tmp_path / "candidate.xml"
     Cli().add_reaction(
         model=str(unverifiable_baseline),
-        reaction=str(request_file),
+        changeset=str(request_file),
         output=str(candidate),
     )
     # WHEN checking it.
@@ -491,7 +498,7 @@ def test_check_reports_unverifiable_as_its_own_status(
         Cli().check(
             model=str(unverifiable_baseline),
             candidate=str(candidate),
-            reaction=str(request_file),
+            changeset=str(request_file),
         )
     )
     # THEN the caller can tell "undecided" from both "passed" and "failed".
@@ -507,14 +514,14 @@ def test_malformed_definition_becomes_a_structured_error(
     # (Regression: this escaped the CLI as a bare AttributeError, so the documented
     # error taxonomy did not hold for hand-written input.)
     malformed = json.loads(request_file.read_text(encoding="utf-8"))
-    malformed["metabolites"] = [["a_c", -1], ["b_c", 1]]
+    malformed["operations"][0]["metabolites"] = [["a_c", -1], ["b_c", 1]]
     request_file.write_text(json.dumps(malformed), encoding="utf-8")
     # WHEN adding the reaction.
     # THEN it fails inside the taxonomy, carrying a category the agent can act on.
     with pytest.raises(RequestViolationError) as caught:
         Cli().add_reaction(
             model=str(baseline),
-            reaction=str(request_file),
+            changeset=str(request_file),
             output=str(tmp_path / "candidate.xml"),
         )
     assert caught.value.as_dict()["category"] == "request_violation"
@@ -529,7 +536,7 @@ def test_export_leaves_no_deliverable_when_the_baseline_changes_mid_run(
     # tampering still left a full-sized file named like a successful result.)
     candidate = tmp_path / "candidate.xml"
     Cli().add_reaction(
-        model=str(baseline), reaction=str(request_file), output=str(candidate)
+        model=str(baseline), changeset=str(request_file), output=str(candidate)
     )
     delivered = tmp_path / "result.xml"
     real_write = publish_module.write_sbml_model
@@ -545,7 +552,7 @@ def test_export_leaves_no_deliverable_when_the_baseline_changes_mid_run(
         Cli().export(
             model=str(baseline),
             candidate=str(candidate),
-            reaction=str(request_file),
+            changeset=str(request_file),
             output=str(delivered),
         )
     assert not delivered.exists()
@@ -568,7 +575,7 @@ def test_export_verifies_the_baseline_against_a_source_manifest(
     with pytest.raises(ModelIntegrityError, match="recorded digest"):
         Cli().add_reaction(
             model=str(baseline),
-            reaction=str(request_file),
+            changeset=str(request_file),
             output=str(tmp_path / "candidate.xml"),
             source_manifest=str(manifest),
         )
@@ -582,7 +589,7 @@ def test_payload_says_which_baseline_guarantee_was_given(
     payload = json.loads(
         Cli().add_reaction(
             model=str(baseline),
-            reaction=str(request_file),
+            changeset=str(request_file),
             output=str(tmp_path / "candidate.xml"),
         )
     )
@@ -598,7 +605,7 @@ def test_payload_says_which_baseline_guarantee_was_given(
     verified = json.loads(
         Cli().add_reaction(
             model=str(baseline),
-            reaction=str(request_file),
+            changeset=str(request_file),
             output=str(tmp_path / "candidate2.xml"),
             source_manifest=str(manifest),
         )
@@ -615,7 +622,7 @@ def test_export_refuses_to_publish_bytes_that_are_not_a_model(
     # and having a SHA-256 is not evidence of being a valid model.)
     candidate = tmp_path / "candidate.xml"
     Cli().add_reaction(
-        model=str(baseline), reaction=str(request_file), output=str(candidate)
+        model=str(baseline), changeset=str(request_file), output=str(candidate)
     )
 
     def garbage_writer(model: object, path: str) -> None:
@@ -631,7 +638,7 @@ def test_export_refuses_to_publish_bytes_that_are_not_a_model(
         Cli().export(
             model=str(baseline),
             candidate=str(candidate),
-            reaction=str(request_file),
+            changeset=str(request_file),
             output=str(delivered),
         )
     assert not delivered.exists()
@@ -651,7 +658,7 @@ def test_unreadable_candidate_is_a_structured_error(
         Cli().export(
             model=str(baseline),
             candidate=str(broken),
-            reaction=str(request_file),
+            changeset=str(request_file),
             output=str(tmp_path / "never.xml"),
         )
     assert caught.value.as_dict()["category"] == "model_integrity"
@@ -685,7 +692,9 @@ def test_build_candidate_refuses_to_publish_unreadable_bytes(
     # WHEN building a candidate.
     # THEN it fails and leaves nothing behind.
     with pytest.raises(ModelIntegrityError, match="could not be read"):
-        build_candidate(baseline, ReactionRequest.from_dict(spec), destination)
+        build_candidate(
+            baseline, ReactionRequest.from_dict(spec["operations"][0]), destination
+        )
     assert not destination.exists()
     assert not list(tmp_path.glob(".*partial*"))
 
@@ -698,7 +707,7 @@ def test_export_refuses_to_publish_a_model_that_is_not_the_candidate(
     # succeeds, so only re-running the checks against the staged bytes catches it.
     candidate = tmp_path / "candidate.xml"
     Cli().add_reaction(
-        model=str(baseline), reaction=str(request_file), output=str(candidate)
+        model=str(baseline), changeset=str(request_file), output=str(candidate)
     )
     substitute = load_model(baseline)
 
@@ -714,7 +723,7 @@ def test_export_refuses_to_publish_a_model_that_is_not_the_candidate(
         Cli().export(
             model=str(baseline),
             candidate=str(candidate),
-            reaction=str(request_file),
+            changeset=str(request_file),
             output=str(delivered),
         )
     assert not delivered.exists()
@@ -734,7 +743,7 @@ def test_syntactically_invalid_json_is_a_structured_error(
     with pytest.raises(RequestViolationError) as caught:
         Cli().add_reaction(
             model=str(baseline),
-            reaction=str(broken),
+            changeset=str(broken),
             output=str(tmp_path / "never.xml"),
         )
     payload = caught.value.as_dict()
@@ -751,7 +760,7 @@ def test_python_api_publishes_with_the_same_guarantees_as_the_cli(
     # methods, so a Python caller could only reach the weaker save_candidate() path
     # and silently got none of the invariants the project advertises.)
     spec = json.loads(request_file.read_text(encoding="utf-8"))
-    request = ReactionRequest.from_dict(spec)
+    request = ReactionRequest.from_dict(spec["operations"][0])
     manifest = tmp_path / "source.json"
     manifest.write_text(
         json.dumps({"artifact": {"sha256": file_digest(baseline)}}), encoding="utf-8"
@@ -779,17 +788,17 @@ def test_export_reports_a_failing_candidate_as_distinct_from_a_damaged_baseline(
     # GIVEN a candidate that no longer matches the request, on an intact baseline.
     candidate = tmp_path / "candidate.xml"
     Cli().add_reaction(
-        model=str(baseline), reaction=str(request_file), output=str(candidate)
+        model=str(baseline), changeset=str(request_file), output=str(candidate)
     )
     tampered = json.loads(request_file.read_text(encoding="utf-8"))
-    tampered["metabolites"] = {"a_c": -2, "b_c": 1}
+    tampered["operations"][0]["metabolites"] = {"a_c": -2, "b_c": 1}
     request_file.write_text(json.dumps(tampered), encoding="utf-8")
     # WHEN exporting it.
     with pytest.raises(ValidationFailedError) as caught:
         Cli().export(
             model=str(baseline),
             candidate=str(candidate),
-            reaction=str(request_file),
+            changeset=str(request_file),
             output=str(tmp_path / "delivered.xml"),
         )
     # THEN the category says the candidate failed, not that the baseline is damaged.
@@ -803,7 +812,7 @@ def test_export_delivers_a_passing_candidate(
     # GIVEN a candidate that still matches the request.
     candidate = tmp_path / "candidate.xml"
     Cli().add_reaction(
-        model=str(baseline), reaction=str(request_file), output=str(candidate)
+        model=str(baseline), changeset=str(request_file), output=str(candidate)
     )
     delivered = tmp_path / "delivered.xml"
     # WHEN exporting it.
@@ -811,7 +820,7 @@ def test_export_delivers_a_passing_candidate(
         Cli().export(
             model=str(baseline),
             candidate=str(candidate),
-            reaction=str(request_file),
+            changeset=str(request_file),
             output=str(delivered),
         )
     )
@@ -842,7 +851,7 @@ def test_export_refuses_to_deliver_a_candidate_with_a_consistency_regression(
     # verified gate, so this monkeypatches only the comparison outcome, not MEMOTE.
     candidate = tmp_path / "candidate.xml"
     Cli().add_reaction(
-        model=str(baseline), reaction=str(request_file), output=str(candidate)
+        model=str(baseline), changeset=str(request_file), output=str(candidate)
     )
     fake_regression = ConsistencyRegression(
         stoichiometric_consistency_lost=False,
@@ -863,7 +872,7 @@ def test_export_refuses_to_deliver_a_candidate_with_a_consistency_regression(
         Cli().export(
             model=str(baseline),
             candidate=str(candidate),
-            reaction=str(request_file),
+            changeset=str(request_file),
             output=str(delivered),
         )
     assert not delivered.exists()

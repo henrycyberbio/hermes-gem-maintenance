@@ -14,7 +14,7 @@ from typing import Any
 
 import fire
 
-from hermes_gem_maintenance.changes import DeleteReactionRequest, ReactionRequest
+from hermes_gem_maintenance.changes import parse_changeset
 from hermes_gem_maintenance.checks import check_candidate
 from hermes_gem_maintenance.errors import (
     GemMaintenanceError,
@@ -31,9 +31,6 @@ from hermes_gem_maintenance.model_io import load_model
 from hermes_gem_maintenance.publish import build_candidate, publish_deliverable
 
 logger = logging.getLogger(__name__)
-
-
-OPERATION_TYPES = ("add_reaction", "delete_reaction")
 
 
 def _emit(payload: dict[str, Any]) -> str:
@@ -66,25 +63,6 @@ def _read_json(path: Path) -> dict[str, Any]:
         msg = f"{path.name} must contain a JSON object"
         raise RequestViolationError(msg, path=path.name)
     return parsed
-
-
-def _parse_request(
-    path: Path, operation: str
-) -> ReactionRequest | DeleteReactionRequest:
-    """Read a reaction definition and parse it as the named operation type.
-
-    `check` and `export` accept either an addition or a deletion, distinguished by
-    this explicit `operation` argument rather than by guessing from which fields the
-    file happens to contain -- a malformed addition missing `metabolites` must not
-    be silently reinterpreted as a valid deletion.
-    """
-    spec = _read_json(path)
-    if operation == "delete_reaction":
-        return DeleteReactionRequest.from_dict(spec)
-    if operation == "add_reaction":
-        return ReactionRequest.from_dict(spec)
-    msg = f"operation must be one of {OPERATION_TYPES}, got {operation!r}"
-    raise RequestViolationError(msg, operation=operation)
 
 
 class Cli:
@@ -135,22 +113,26 @@ class Cli:
     def add_reaction(
         self,
         model: str,
-        reaction: str,
+        changeset: str,
         output: str,
         source_manifest: str = "",
         expected_sha256: str = "",
     ) -> str:
-        """Apply a structured reaction definition, writing a new candidate model.
+        """Apply a changeset's add_reaction operation, writing a new candidate model.
 
         Args:
             model: Path to the baseline SBML model; never modified.
-            reaction: Path to a JSON reaction definition.
+            changeset: Path to a changeset JSON file: `{"operations": [{"type":
+                "add_reaction", ...}]}`. Refused if it does not carry exactly one
+                add_reaction operation.
             output: Path for the candidate model; must not already exist.
             source_manifest: Path to the model's source manifest. When given, the
                 baseline must match the SHA-256 it records before anything is read.
             expected_sha256: The approved digest, if there is no manifest.
         """
-        request = ReactionRequest.from_dict(_read_json(Path(reaction)))
+        request = parse_changeset(
+            _read_json(Path(changeset)), expected_type="add_reaction"
+        )
         result = build_candidate(
             Path(model),
             request,
@@ -163,26 +145,29 @@ class Cli:
     def delete_reaction(
         self,
         model: str,
-        reaction: str,
+        changeset: str,
         output: str,
         source_manifest: str = "",
         expected_sha256: str = "",
     ) -> str:
-        """Remove a reaction named by ID, writing a new candidate model.
+        """Apply a changeset's delete_reaction operation, writing a new candidate.
 
-        Mirrors `add_reaction`: the reaction definition here is `{"reaction_id":
-        "ID"}`, nothing more -- there is no stoichiometry or bounds to specify for a
-        removal. Refuses an identifier absent from the baseline.
+        Mirrors `add_reaction`: the changeset's one operation carries `{"type":
+        "delete_reaction", "reaction_id": "ID"}`, nothing more -- there is no
+        stoichiometry or bounds to specify for a removal. Refuses an identifier
+        absent from the baseline.
 
         Args:
             model: Path to the baseline SBML model; never modified.
-            reaction: Path to a JSON definition naming the reaction to remove.
+            changeset: Path to a changeset JSON file naming the reaction to remove.
             output: Path for the candidate model; must not already exist.
             source_manifest: Path to the model's source manifest. When given, the
                 baseline must match the SHA-256 it records before anything is read.
             expected_sha256: The approved digest, if there is no manifest.
         """
-        request = DeleteReactionRequest.from_dict(_read_json(Path(reaction)))
+        request = parse_changeset(
+            _read_json(Path(changeset)), expected_type="delete_reaction"
+        )
         result = build_candidate(
             Path(model),
             request,
@@ -192,19 +177,18 @@ class Cli:
         )
         return _emit(result.as_dict())
 
-    def check(
-        self, model: str, candidate: str, reaction: str, operation: str = "add_reaction"
-    ) -> str:
-        """Verify a candidate matches the request and changed nothing else.
+    def check(self, model: str, candidate: str, changeset: str) -> str:
+        """Verify a candidate matches the changeset and changed nothing else.
 
         Args:
             model: Path to the baseline SBML model.
             candidate: Path to the candidate SBML model.
-            reaction: Path to the JSON reaction definition that was requested.
-            operation: "add_reaction" (default) or "delete_reaction" -- which
-                invariant to check the candidate against.
+            changeset: Path to the changeset JSON file that was requested. Its one
+                operation's `type` (`add_reaction` or `delete_reaction`) selects
+                which invariant the candidate is checked against -- there is no
+                separate operation argument to keep in agreement with it.
         """
-        request = _parse_request(Path(reaction), operation)
+        request = parse_changeset(_read_json(Path(changeset)))
         result = check_candidate(
             load_model(Path(model)), load_model(Path(candidate)), request
         )
@@ -214,11 +198,10 @@ class Cli:
         self,
         model: str,
         candidate: str,
-        reaction: str,
+        changeset: str,
         output: str,
         source_manifest: str = "",
         expected_sha256: str = "",
-        operation: str = "add_reaction",
     ) -> str:
         """Re-check a candidate and write the deliverable only if it passes.
 
@@ -237,15 +220,15 @@ class Cli:
         Args:
             model: Path to the baseline SBML model.
             candidate: Path to the candidate SBML model.
-            reaction: Path to the JSON reaction definition that was requested.
+            changeset: Path to the changeset JSON file that was requested. Its one
+                operation's `type` selects which invariant the candidate must
+                satisfy to be delivered.
             output: Path for the deliverable model; must not already exist.
             source_manifest: Path to the model's source manifest. When given, the
                 baseline must match the SHA-256 it records.
             expected_sha256: The approved digest, if there is no manifest.
-            operation: "add_reaction" (default) or "delete_reaction" -- which
-                invariant the candidate must satisfy to be delivered.
         """
-        request = _parse_request(Path(reaction), operation)
+        request = parse_changeset(_read_json(Path(changeset)))
         result = publish_deliverable(
             Path(model),
             Path(candidate),

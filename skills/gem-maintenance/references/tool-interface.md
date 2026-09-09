@@ -6,30 +6,44 @@ real output from the worked example, not a sketch.
 Fire accepts either `add_reaction` or `add-reaction`; the underscore form matches the
 Python API.
 
-## Reaction definition
+## Changeset
 
-The structured definition the agent produces and the package validates. The example
-below is deliberately **not** the repository's worked case: it restates `CITL`, a
-reaction already present in `iEC1372_W3110`, so reading it cannot substitute for
-deriving a definition from the model in front of you. (Submitting it as an addition
-would be rejected as a duplicate identifier.)
+The structured definition the agent produces and the package validates. Every
+operation, addition or deletion, is wrapped in the same envelope:
+`{"operations": [{"type": ..., ...}]}`. MVP scope holds this array to exactly one
+operation; a changeset with any other length is refused, not silently truncated.
+
+The example below is deliberately **not** the repository's worked case: it
+restates `CITL`, a reaction already present in `iEC1372_W3110`, so reading it
+cannot substitute for deriving a definition from the model in front of you.
+(Submitting it as an addition would be rejected as a duplicate identifier.)
 
 ```json
 {
-  "reaction_id": "CITL",
-  "name": "Citrate lyase",
-  "metabolites": {"cit_c": -1, "ac_c": 1, "oaa_c": 1},
-  "lower_bound": 0.0,
-  "upper_bound": 1000.0,
-  "gene_reaction_rule": "Y7U_RS03200 and Y7U_RS03205",
-  "subsystem": "Citric Acid Cycle"
+  "operations": [
+    {
+      "type": "add_reaction",
+      "reaction_id": "CITL",
+      "name": "Citrate lyase",
+      "metabolites": {"cit_c": -1, "ac_c": 1, "oaa_c": 1},
+      "lower_bound": 0.0,
+      "upper_bound": 1000.0,
+      "gene_reaction_rule": "Y7U_RS03200 and Y7U_RS03205",
+      "subsystem": "Citric Acid Cycle"
+    }
+  ]
 }
 ```
 
-Required: `reaction_id`, `metabolites`, `lower_bound`, `upper_bound`. Optional:
-`name`, `subsystem`, `gene_reaction_rule`. Coefficients are signed — negative for
-consumed, positive for produced — and must be non-zero. Any other key is ignored, so
-provenance fields may be carried alongside for the human record.
+Required for `add_reaction`: `reaction_id`, `metabolites`, `lower_bound`,
+`upper_bound`. Optional: `name`, `subsystem`, `gene_reaction_rule`. Coefficients
+are signed — negative for consumed, positive for produced — and must be
+non-zero. Any other key is ignored, so provenance fields may be carried
+alongside for the human record.
+
+`delete_reaction`'s operation carries only `{"type": "delete_reaction",
+"reaction_id": "ID"}` — there is no stoichiometry or bounds to specify for a
+removal, and it refuses an identifier absent from the baseline.
 
 Every value comes from the request or from the model, never from an example
 elsewhere. Deriving the fields:
@@ -155,7 +169,7 @@ compartment, do not rank them. Pass `--compartment=c` when the request settles i
 ## add_reaction
 
 ```bash
-uv run hermes-gem-maintenance add_reaction --model=MODEL --reaction=SPEC.json --output=CAND.xml \
+uv run hermes-gem-maintenance add_reaction --model=MODEL --changeset=CHANGESET.json --output=CAND.xml \
   --source_manifest=MODEL.source.json
 ```
 
@@ -187,7 +201,7 @@ baseline is re-verified, so a failed run leaves nothing at `--output`.
 ## check
 
 ```bash
-uv run hermes-gem-maintenance check --model=MODEL --candidate=CAND.xml --reaction=SPEC.json
+uv run hermes-gem-maintenance check --model=MODEL --candidate=CAND.xml --changeset=CHANGESET.json
 ```
 
 ```json
@@ -243,7 +257,7 @@ passed.
 ## export
 
 ```bash
-uv run hermes-gem-maintenance export --model=MODEL --candidate=CAND.xml --reaction=SPEC.json --output=OUT.xml
+uv run hermes-gem-maintenance export --model=MODEL --candidate=CAND.xml --changeset=CHANGESET.json --output=OUT.xml
 ```
 
 Re-loads the candidate from disk, re-runs every check, **writes the deliverable to a
@@ -312,18 +326,27 @@ arguments, calls these functions, and serializes the result.
 
 ```python
 from hermes_gem_maintenance import (
-    ReactionRequest, add_reaction, check_candidate,
+    ReactionRequest, DeleteReactionRequest, add_reaction, delete_reaction,
+    parse_changeset, apply_changeset, check_candidate,
     build_candidate, publish_deliverable,
     load_model, file_digest, verify_digest, verify_source,
     resolve_metabolite, require_unique_metabolite,
 )
 ```
 
-`build_candidate` and `publish_deliverable` are what the CLI's `add_reaction` and
-`export` call. Use them rather than assembling `save_candidate` yourself: the source
-verification, staged write, re-check of the published bytes and no-clobber publication
-live inside them, so hand-rolling the sequence produces a weaker artifact that looks
-the same.
+`build_candidate` and `publish_deliverable` are what the CLI's `add_reaction`,
+`delete_reaction` and `export` call. Use them rather than assembling
+`save_candidate` yourself: the source verification, staged write, re-check of the
+published bytes and no-clobber publication live inside them, so hand-rolling the
+sequence produces a weaker artifact that looks the same.
+
+`parse_changeset` reads a changeset envelope (`{"operations": [...]}`) into the
+single `ReactionRequest` or `DeleteReactionRequest` it carries; `apply_changeset`
+dispatches either one to `add_reaction` or `delete_reaction` without the caller
+needing its own `isinstance` check. This is what the CLI does with a parsed
+changeset file; a caller that already has a `ReactionRequest` or
+`DeleteReactionRequest` object (built some other way) may still call
+`add_reaction`/`delete_reaction` directly.
 
 `require_unique_metabolite` raises `InsufficientInformationError` with the candidates
 listed rather than returning a best guess — the same refusal the CLI reports.
