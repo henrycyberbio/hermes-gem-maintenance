@@ -14,13 +14,21 @@ from hermes_gem_maintenance.checks import (
     diff_snapshots,
     semantic_snapshot,
 )
+from hermes_gem_maintenance.consistency_review import (
+    ConsistencyRegression,
+    ConsistencySnapshot,
+    compare_consistency,
+    consistency_snapshot,
+)
 from hermes_gem_maintenance.errors import (
+    DependencyMissingError,
     GemMaintenanceError,
     InsufficientInformationError,
     ModelIntegrityError,
     RequestViolationError,
     ValidationFailedError,
 )
+from hermes_gem_maintenance.feasibility import FeasibilityResult, check_feasibility
 from hermes_gem_maintenance.inspect import (
     describe_metabolite,
     describe_reaction,
@@ -48,7 +56,11 @@ from hermes_gem_maintenance.publish import (
 __all__ = [
     "CandidateResult",
     "CheckResult",
+    "ConsistencyRegression",
+    "ConsistencySnapshot",
+    "DependencyMissingError",
     "ExportResult",
+    "FeasibilityResult",
     "GemMaintenanceError",
     "InsufficientInformationError",
     "ModelIntegrityError",
@@ -60,6 +72,9 @@ __all__ = [
     "build_candidate",
     "canonical_gpr",
     "check_candidate",
+    "check_feasibility",
+    "compare_consistency",
+    "consistency_snapshot",
     "describe_metabolite",
     "describe_reaction",
     "diff_snapshots",

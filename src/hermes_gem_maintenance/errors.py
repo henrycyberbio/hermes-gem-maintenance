@@ -64,3 +64,16 @@ class ValidationFailedError(GemMaintenanceError):
     """
 
     category = "validation_failed"
+
+
+class DependencyMissingError(GemMaintenanceError):
+    """A check that must run before delivery is not installed in this environment.
+
+    Distinct from every other category: the request is fine, the baseline is fine,
+    and the candidate may well be fine too -- the tool itself cannot answer yet.
+    Recovery is neither "ask a question" nor "regenerate the candidate" but "install
+    the missing dependency", so collapsing this into ValidationFailedError would tell
+    the caller to retry an operation that will keep failing for an unrelated reason.
+    """
+
+    category = "dependency_missing"

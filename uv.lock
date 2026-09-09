@@ -584,6 +584,7 @@ memote = [
 [package.dev-dependencies]
 dev = [
     { name = "citeproc-py" },
+    { name = "memote" },
     { name = "pytest" },
 ]
 
@@ -598,6 +599,7 @@ provides-extras = ["memote"]
 [package.metadata.requires-dev]
 dev = [
     { name = "citeproc-py", specifier = ">=0.11.1" },
+    { name = "memote", specifier = "==0.17.0" },
     { name = "pytest", specifier = ">=8.0" },
 ]
 

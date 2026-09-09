@@ -166,8 +166,14 @@ class Cli:
         The re-check is the point: a candidate is validated again, as loaded from
         disk, immediately before delivery. A candidate whose checks could not be
         decided is refused too -- delivering it would present an untested model as a
-        verified one. The deliverable is published by atomic rename after the final
-        baseline check, so a failed run never leaves a file at the output path.
+        verified one. Delivery also requires MEMOTE to report no new consistency
+        regression (stoichiometric consistency, mass/charge balance, blocked
+        reactions, dead-end and orphan metabolites) between the baseline and the
+        staged deliverable; this requires the `memote` optional dependency group
+        (`pip install .[memote]`) and typically adds tens of seconds for flux
+        variability analysis on a genome-scale model. The deliverable is published by
+        atomic rename after the final baseline check, so a failed run never leaves a
+        file at the output path.
 
         Args:
             model: Path to the baseline SBML model.

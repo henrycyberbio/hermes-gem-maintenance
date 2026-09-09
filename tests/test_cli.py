@@ -57,6 +57,20 @@ def baseline(tmp_path: Path) -> Path:
     existing = cobra.Reaction("EXIST", lower_bound=0.0, upper_bound=1000.0)
     model.add_reactions([existing])
     existing.add_metabolites({model.metabolites.a_c: -1})
+    # Exchanges giving a_c a source and b_c a sink. Without them the model has no
+    # way to carry flux at all, so any reaction later added by a test (a_c -> b_c)
+    # is universally blocked regardless of whether the addition itself is sound --
+    # not a signal about the change, just an artifact of a toy network with no
+    # open boundary. The real screening criteria (gem-model-modification skill)
+    # already require an existing consumer/producer for a real case; this mirrors
+    # that requirement in miniature so the consistency-regression gate has
+    # something meaningful to say about the reactions these tests actually add.
+    ex_a = cobra.Reaction("EX_a_c", lower_bound=-1000.0, upper_bound=1000.0)
+    model.add_reactions([ex_a])
+    ex_a.add_metabolites({model.metabolites.a_c: -1})
+    ex_b = cobra.Reaction("EX_b_c", lower_bound=-1000.0, upper_bound=1000.0)
+    model.add_reactions([ex_b])
+    ex_b.add_metabolites({model.metabolites.b_c: -1})
     path = tmp_path / "baseline.xml"
     write_sbml_model(model, str(path))
     return path

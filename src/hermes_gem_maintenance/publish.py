@@ -20,6 +20,10 @@ from hermes_gem_maintenance.checks import (
     diff_snapshots,
     semantic_snapshot,
 )
+from hermes_gem_maintenance.consistency_review import (
+    compare_consistency,
+    consistency_snapshot,
+)
 from hermes_gem_maintenance.errors import ValidationFailedError
 from hermes_gem_maintenance.model_io import (
     file_digest,
@@ -68,6 +72,7 @@ class ExportResult:
     delivered_sha256: str
     baseline_verified_against: str
     checks: dict[str, Any]
+    consistency_regression: dict[str, Any]
 
     def as_dict(self) -> dict[str, Any]:
         """Structured form for JSON output."""
@@ -76,6 +81,7 @@ class ExportResult:
             "delivered": self.delivered.name,
             "delivered_sha256": self.delivered_sha256,
             "baseline_verified_against": self.baseline_verified_against,
+            "consistency_regression": self.consistency_regression,
             **self.checks,
         }
 
@@ -180,12 +186,30 @@ def publish_deliverable(
         verify_digest(baseline, before)
         digest = file_digest(staged)
 
+        # Runs against the staged bytes, matching every other check in this function:
+        # the guarantee this gate gives is about the artifact that is about to be
+        # released, not about the candidate before it went through the writer.
+        regression = compare_consistency(
+            consistency_snapshot(base_model), consistency_snapshot(published)
+        )
+        if not regression.ok:
+            msg = (
+                "staged deliverable introduces a consistency regression MEMOTE did "
+                "not report on the baseline; nothing published"
+            )
+            raise ValidationFailedError(
+                msg,
+                consistency_regression=regression.as_dict(),
+                **staged_result.as_dict(),
+            )
+
     return ExportResult(
         reaction_id=request.reaction_id,
         delivered=destination,
         delivered_sha256=digest,
         baseline_verified_against=provenance_label(manifest, expected_sha256),
         checks=staged_result.as_dict(),
+        consistency_regression=regression.as_dict(),
     )
 
 

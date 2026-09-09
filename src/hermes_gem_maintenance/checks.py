@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Any
 
 from cobra.core.gene import GPR
 
+from hermes_gem_maintenance.feasibility import check_feasibility
+
 if TYPE_CHECKING:
     import cobra
 
@@ -237,6 +239,13 @@ def check_candidate(
 
     name, verdict = _balance_verdict(reaction)
     result.record(name, **verdict)
+
+    feasibility = check_feasibility(candidate)
+    result.record(
+        "candidate is solvable under its own bounds and objective",
+        ok=feasibility.ok,
+        detail=f"{feasibility.status}, objective={feasibility.objective_value}",
+    )
 
     diff = diff_snapshots(semantic_snapshot(base), semantic_snapshot(candidate))
     unrelated = _unrelated_changes(diff, request.reaction_id)

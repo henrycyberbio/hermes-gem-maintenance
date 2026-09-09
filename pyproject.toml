@@ -13,16 +13,20 @@ dependencies = [
 hermes-gem-maintenance = "hermes_gem_maintenance.cli:main"
 
 [project.optional-dependencies]
-# MEMOTE is not used by this package. It is the standard test suite for whole-model
-# quality and belongs in a review workflow, not in the install of a tool that adds
-# one reaction -- as a runtime dependency it pulled pytest, PyGithub, SQLAlchemy and
-# cookiecutter into every install for no functionality.
+# MEMOTE is not imported by any module at load time -- consistency_review.py imports
+# it lazily inside consistency_snapshot(), so `inspect`, `resolve`, `add_reaction` and
+# `check` never pull in pytest, PyGithub, SQLAlchemy or cookiecutter. `export` does
+# require it: publish_deliverable() calls consistency_snapshot() as part of the
+# delivery gate (local/Hermes-GEM_Plan_v0.1.md S10), and raises DependencyMissingError
+# if the group below is not installed. Treat this extra as required before running
+# `export` against a real delivery, not as something a caller may skip.
 memote = ["memote==0.17.0"]
 
 [dependency-groups]
 dev = [
     "citeproc-py>=0.11.1",
     "pytest>=8.0",
+    "memote==0.17.0",
 ]
 
 
