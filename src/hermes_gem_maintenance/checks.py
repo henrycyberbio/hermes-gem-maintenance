@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from cobra.core.gene import GPR
 
+from hermes_gem_maintenance.changes import DeleteReactionRequest
 from hermes_gem_maintenance.feasibility import check_feasibility
 
 if TYPE_CHECKING:
@@ -195,9 +196,25 @@ def diff_snapshots(before: dict[str, Any], after: dict[str, Any]) -> dict[str, A
 def check_candidate(
     base: cobra.Model,
     candidate: cobra.Model,
+    request: ReactionRequest | DeleteReactionRequest,
+) -> CheckResult:
+    """Verify the candidate matches the request and changed nothing else.
+
+    Dispatches on the request's own type: a `DeleteReactionRequest` is checked
+    against removal invariants, everything else against addition invariants. Both
+    share the feasibility check and the unrelated-change detector.
+    """
+    if isinstance(request, DeleteReactionRequest):
+        return _check_delete(base, candidate, request)
+    return _check_add(base, candidate, request)
+
+
+def _check_add(
+    base: cobra.Model,
+    candidate: cobra.Model,
     request: ReactionRequest,
 ) -> CheckResult:
-    """Verify the candidate matches the request and changed nothing else."""
+    """Verify the candidate adds exactly the requested reaction and nothing else."""
     result = CheckResult()
 
     # The operation is "add", so absence from the baseline is part of the contract.
@@ -263,7 +280,7 @@ def check_candidate(
     )
 
     diff = diff_snapshots(semantic_snapshot(base), semantic_snapshot(candidate))
-    unrelated = _unrelated_changes(diff, request.reaction_id)
+    unrelated = _unrelated_changes(diff, expected_added=request.reaction_id)
     added = diff.get("reactions", {}).get("added", [])
     # Stated as one positive invariant rather than two negatives. Given the
     # absence-from-baseline guard above, `added == [id]` cannot fail on its own --
@@ -275,6 +292,61 @@ def check_candidate(
         "diff is exactly the requested addition",
         ok=added == [request.reaction_id] and not unrelated,
         detail=str(unrelated) if unrelated else f"added: {added}",
+    )
+    return result
+
+
+def _check_delete(
+    base: cobra.Model,
+    candidate: cobra.Model,
+    request: DeleteReactionRequest,
+) -> CheckResult:
+    """Verify the candidate removes exactly the requested reaction and nothing else.
+
+    Mirrors `_check_add`'s shape with the invariants inverted: the reaction must
+    exist in the baseline (there is nothing to remove otherwise) and be gone from
+    the candidate. There is no stoichiometry, bounds, gene rule or balance to check
+    -- the reaction itself is gone -- but feasibility and the unrelated-change
+    detector apply exactly as they do for an addition.
+    """
+    result = CheckResult()
+
+    if request.reaction_id not in base.reactions:
+        result.record(
+            "reaction present in baseline",
+            ok=False,
+            detail=f"{request.reaction_id} was already absent before the change",
+        )
+        return result
+    result.record(
+        "reaction present in baseline", ok=True, detail=request.reaction_id
+    )
+
+    if request.reaction_id in candidate.reactions:
+        result.record(
+            "reaction absent from candidate",
+            ok=False,
+            detail=f"{request.reaction_id} still present",
+        )
+        return result
+    result.record(
+        "reaction absent from candidate", ok=True, detail=request.reaction_id
+    )
+
+    feasibility = check_feasibility(candidate)
+    result.record(
+        "candidate is solvable under its own bounds and objective",
+        ok=feasibility.ok,
+        detail=f"{feasibility.status}, objective={feasibility.objective_value}",
+    )
+
+    diff = diff_snapshots(semantic_snapshot(base), semantic_snapshot(candidate))
+    unrelated = _unrelated_changes(diff, expected_removed=request.reaction_id)
+    removed = diff.get("reactions", {}).get("removed", [])
+    result.record(
+        "diff is exactly the requested removal",
+        ok=removed == [request.reaction_id] and not unrelated,
+        detail=str(unrelated) if unrelated else f"removed: {removed}",
     )
     return result
 
@@ -318,12 +390,28 @@ def _balance_verdict(reaction: cobra.Reaction) -> tuple[str, dict[str, Any]]:
     )
 
 
-def _unrelated_changes(diff: dict[str, Any], reaction_id: str) -> dict[str, Any]:
-    """Everything in the diff that the request did not ask for."""
+def _unrelated_changes(
+    diff: dict[str, Any],
+    *,
+    expected_added: str = "",
+    expected_removed: str = "",
+) -> dict[str, Any]:
+    """Everything in the diff that the request did not ask for.
+
+    An addition expects exactly one new reaction id and no removals; a deletion
+    expects exactly one removed id and no additions. Passing both keywords empty
+    would silently accept any addition or removal as "expected", so callers always
+    supply exactly one -- the type checker cannot enforce that, but every call site
+    in this module does.
+    """
     reactions = diff.get("reactions", {})
     found = {
-        "added_reactions": [r for r in reactions.get("added", []) if r != reaction_id],
-        "removed_reactions": reactions.get("removed", []),
+        "added_reactions": [
+            r for r in reactions.get("added", []) if r != expected_added
+        ],
+        "removed_reactions": [
+            r for r in reactions.get("removed", []) if r != expected_removed
+        ],
         "changed_reactions": reactions.get("changed", []),
         "metabolites": diff.get("metabolites", {}),
         "objective": diff.get("objective"),

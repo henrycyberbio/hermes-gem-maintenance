@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 from cobra.io import write_sbml_model
 
-from hermes_gem_maintenance.changes import add_reaction
+from hermes_gem_maintenance.changes import apply_changeset
 from hermes_gem_maintenance.checks import (
     check_candidate,
     diff_snapshots,
@@ -36,7 +36,7 @@ from hermes_gem_maintenance.model_io import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from hermes_gem_maintenance.changes import ReactionRequest
+    from hermes_gem_maintenance.changes import DeleteReactionRequest, ReactionRequest
 
 
 # ==== results ====
@@ -112,7 +112,7 @@ def provenance_label(manifest: Path | None, expected: str) -> str:
 
 def build_candidate(
     baseline: Path,
-    request: ReactionRequest,
+    request: ReactionRequest | DeleteReactionRequest,
     destination: Path,
     *,
     manifest: Path | None = None,
@@ -127,7 +127,7 @@ def build_candidate(
     """
     before = verify_source(baseline, manifest=manifest, expected=expected_sha256)
     model = load_model(baseline)
-    add_reaction(model, request)
+    apply_changeset(model, request)
 
     with staged_write(destination, protected=baseline) as staged:
         write_sbml_model(model, str(staged))
@@ -147,7 +147,7 @@ def build_candidate(
 def publish_deliverable(
     baseline: Path,
     candidate: Path,
-    request: ReactionRequest,
+    request: ReactionRequest | DeleteReactionRequest,
     destination: Path,
     *,
     manifest: Path | None = None,

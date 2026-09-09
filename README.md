@@ -44,9 +44,17 @@ Each subcommand prints JSON and exits non-zero on a deliberate error.
 uv run hermes-gem-maintenance inspect  --model=MODEL [--reaction=ID | --metabolite=ID]
 uv run hermes-gem-maintenance resolve  --model=MODEL --query=NAME [--compartment=C]
 uv run hermes-gem-maintenance add_reaction --model=MODEL --reaction=SPEC.json --output=CAND.xml [--source_manifest=SRC.json]
-uv run hermes-gem-maintenance check    --model=MODEL --candidate=CAND.xml --reaction=SPEC.json
-uv run hermes-gem-maintenance export   --model=MODEL --candidate=CAND.xml --reaction=SPEC.json --output=OUT.xml [--source_manifest=SRC.json]
+uv run hermes-gem-maintenance delete_reaction --model=MODEL --reaction=SPEC.json --output=CAND.xml [--source_manifest=SRC.json]
+uv run hermes-gem-maintenance check    --model=MODEL --candidate=CAND.xml --reaction=SPEC.json [--operation=add_reaction|delete_reaction]
+uv run hermes-gem-maintenance export   --model=MODEL --candidate=CAND.xml --reaction=SPEC.json --output=OUT.xml [--source_manifest=SRC.json] [--operation=add_reaction|delete_reaction]
 ```
+
+`delete_reaction` mirrors `add_reaction`: the definition is `{"reaction_id": "ID"}`,
+nothing more, and it refuses an identifier absent from the baseline. `check` and
+`export` default to `--operation=add_reaction`; pass `--operation=delete_reaction`
+to validate a removal candidate against the inverted invariant (the reaction must
+be present in the baseline and absent from the candidate, rather than the other
+way around).
 
 `resolve` returns every plausible match with the reason it matched and never picks a
 winner; choosing between candidates is the caller's judgment. `check` runs the
@@ -64,6 +72,14 @@ memote`) and typically takes one to several minutes on a genome-scale model,
 dominated by flux variability analysis for blocked reactions. `--source_manifest`
 asserts which model the caller expected; the result's `baseline_verified_against`
 names the guarantee actually obtained.
+
+A deletion that structurally passes `check` can still be refused by `export`: on
+this project's frozen model, deleting `ACKr` leaves the model solvable with an
+unchanged growth rate (`check` passes), but MEMOTE's before/after comparison finds
+that `PTAr` -- previously `ACKr`'s only other consumer of `actp_c` -- becomes
+newly blocked. `export` refuses to publish that candidate. A change can be
+locally well-formed and still degrade the network in a way only a whole-model
+check catches.
 
 The CLI is a thin wrapper: it calls `build_candidate` and `publish_deliverable` from
 the package, so a Python caller gets the same guarantees. See

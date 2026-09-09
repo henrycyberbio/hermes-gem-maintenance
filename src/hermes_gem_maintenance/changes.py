@@ -1,4 +1,9 @@
-"""Applying a structured reaction definition to a model."""
+"""Applying a structured changeset operation to a model.
+
+A changeset carries exactly one operation for now (plan S11): either `add_reaction`
+or `delete_reaction`. `parse_changeset` reads the envelope, `apply_changeset`
+dispatches to the matching mutation.
+"""
 
 from __future__ import annotations
 
@@ -192,3 +197,114 @@ def add_reaction(model: cobra.Model, request: ReactionRequest) -> cobra.Reaction
     if request.gene_reaction_rule:
         reaction.gene_reaction_rule = request.gene_reaction_rule
     return reaction
+
+
+# ==== deletion ====
+
+
+@dataclass(frozen=True)
+class DeleteReactionRequest:
+    """A reaction removal, identified by ID alone -- nothing else to specify."""
+
+    reaction_id: str
+
+    @classmethod
+    def from_dict(cls, spec: Mapping[str, Any]) -> DeleteReactionRequest:
+        """Build from a parsed definition, reporting what is missing or malformed."""
+        if not isinstance(spec, Mapping):
+            msg = "delete_reaction definition must be a JSON object"
+            raise RequestViolationError(msg)
+
+        reaction_id = spec.get("reaction_id")
+        if reaction_id is None:
+            msg = "delete_reaction definition is missing: reaction_id"
+            raise InsufficientInformationError(msg, missing=["reaction_id"])
+        if not isinstance(reaction_id, str) or not reaction_id.strip():
+            msg = "reaction_id must be a non-empty string"
+            raise RequestViolationError(msg, reaction_id=str(reaction_id))
+
+        return cls(reaction_id=reaction_id)
+
+
+def delete_reaction(
+    model: cobra.Model, request: DeleteReactionRequest
+) -> cobra.Reaction:
+    """Remove one reaction from a model in memory.
+
+    Refuses a reaction ID absent from the model. Deleting something that was never
+    there is not a no-op the caller can shrug off -- it means the request named the
+    wrong model or the wrong identifier, and proceeding silently would hide that.
+    """
+    if request.reaction_id not in model.reactions:
+        msg = f"reaction {request.reaction_id} does not exist in the model"
+        raise RequestViolationError(msg, reaction_id=request.reaction_id)
+
+    reaction = model.reactions.get_by_id(request.reaction_id)
+    model.remove_reactions([reaction])
+    return reaction
+
+
+# ==== changeset envelope ====
+
+CHANGESET_OPERATION_TYPES = ("add_reaction", "delete_reaction")
+
+
+def parse_changeset(
+    spec: Mapping[str, Any], *, expected_type: str | None = None
+) -> ReactionRequest | DeleteReactionRequest:
+    """Parse a changeset envelope into its single operation.
+
+    A changeset is `{"operations": [...]}`. The MVP scope is one operation per
+    changeset (plan S11.3): the array shape is kept so a caller-facing request never
+    needs to change format if that limit is lifted later, but nothing in this
+    package acts on more than one operation today, and a changeset with any other
+    length is refused rather than silently truncated.
+
+    `expected_type` lets a caller that only makes sense for one operation kind (the
+    CLI's `add_reaction` and `delete_reaction` commands) refuse a changeset of the
+    wrong kind with a specific message, instead of a generic type error.
+    """
+    if not isinstance(spec, Mapping):
+        msg = "changeset must be a JSON object"
+        raise RequestViolationError(msg)
+
+    operations = spec.get("operations")
+    if not isinstance(operations, list):
+        msg = "changeset must contain an 'operations' array"
+        raise RequestViolationError(msg)
+    if len(operations) != 1:
+        msg = f"changeset must contain exactly one operation, got {len(operations)}"
+        raise RequestViolationError(msg, operation_count=len(operations))
+
+    operation = operations[0]
+    if not isinstance(operation, Mapping):
+        msg = "each operation must be a JSON object"
+        raise RequestViolationError(msg)
+
+    op_type = operation.get("type")
+    if expected_type is not None and op_type != expected_type:
+        msg = f"changeset operation type must be {expected_type!r}, got {op_type!r}"
+        raise RequestViolationError(msg, type=op_type)
+
+    if op_type == "add_reaction":
+        return ReactionRequest.from_dict(operation)
+    if op_type == "delete_reaction":
+        return DeleteReactionRequest.from_dict(operation)
+    msg = f"operation type must be one of {CHANGESET_OPERATION_TYPES}, got {op_type!r}"
+    raise RequestViolationError(msg, type=op_type)
+
+
+def apply_changeset(
+    model: cobra.Model, request: ReactionRequest | DeleteReactionRequest
+) -> cobra.Reaction:
+    """Apply one changeset operation to a model in memory.
+
+    Dispatches on the request's own type, the same rule `check_candidate` uses. This
+    is the one call site a writer should use: reaching for `add_reaction` or
+    `delete_reaction` directly still works for code that already knows which one it
+    wants, but a caller that only has a parsed changeset should not need an
+    `isinstance` check of its own.
+    """
+    if isinstance(request, DeleteReactionRequest):
+        return delete_reaction(model, request)
+    return add_reaction(model, request)

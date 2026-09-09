@@ -96,6 +96,55 @@ def request_file(tmp_path: Path) -> Path:
     return path
 
 
+@pytest.fixture
+def deletable_baseline(tmp_path: Path) -> Path:
+    """A baseline where EXIST has a redundant twin, so deleting EXIST is clean.
+
+    `baseline` makes EXIST the sole consumer of a_c, so removing it strands a_c's
+    exchange reaction with nothing else to balance against -- MEMOTE correctly
+    reports that as a newly blocked reaction, which is the right answer but not
+    what a "happy path" delete test needs. This fixture adds a second reaction
+    (BYPASS) with the same effect as EXIST, so EXIST is deletable without isolating
+    anything: exactly the kind of redundancy the gem-model-modification skill's
+    screening criteria require of a real deletion case (S11.4 of the plan).
+    """
+    model = cobra.Model("toy")
+    model.compartments = {"c": "cytosol", "p": "periplasm"}
+    specs = [
+        ("a_c", "c", "Alpha", "C6H11O9P"),
+        ("aa_c", "c", "Double alpha", "C6H11O9P"),
+        ("b_c", "c", "Beta", "C6H11O9P"),
+        ("b_p", "p", "Beta", "C6H11O9P"),
+    ]
+    for mid, compartment, name, formula in specs:
+        model.add_metabolites(
+            [
+                cobra.Metabolite(
+                    mid,
+                    name=name,
+                    formula=formula,
+                    charge=0,
+                    compartment=compartment,
+                )
+            ]
+        )
+    existing = cobra.Reaction("EXIST", lower_bound=0.0, upper_bound=1000.0)
+    model.add_reactions([existing])
+    existing.add_metabolites({model.metabolites.a_c: -1})
+    bypass = cobra.Reaction("BYPASS", lower_bound=0.0, upper_bound=1000.0)
+    model.add_reactions([bypass])
+    bypass.add_metabolites({model.metabolites.a_c: -1})
+    ex_a = cobra.Reaction("EX_a_c", lower_bound=-1000.0, upper_bound=1000.0)
+    model.add_reactions([ex_a])
+    ex_a.add_metabolites({model.metabolites.a_c: -1})
+    ex_b = cobra.Reaction("EX_b_c", lower_bound=-1000.0, upper_bound=1000.0)
+    model.add_reactions([ex_b])
+    ex_b.add_metabolites({model.metabolites.b_c: -1})
+    path = tmp_path / "deletable_baseline.xml"
+    write_sbml_model(model, str(path))
+    return path
+
+
 # ==== inspect and resolve ====
 
 
@@ -213,6 +262,133 @@ def test_add_reaction_distinguishes_a_violation_from_missing_information(
             model=str(baseline),
             reaction=str(incomplete),
             output=str(tmp_path / "b.xml"),
+        )
+
+
+# ==== delete-reaction ====
+
+
+def test_delete_reaction_writes_a_candidate_and_preserves_the_baseline(
+    baseline: Path, tmp_path: Path
+) -> None:
+    # GIVEN a baseline model containing EXIST, and its digest before the command runs.
+    before = file_digest(baseline)
+    delete_spec = tmp_path / "delete.json"
+    delete_spec.write_text(json.dumps({"reaction_id": "EXIST"}), encoding="utf-8")
+    output = tmp_path / "candidate.xml"
+    # WHEN deleting the reaction.
+    payload = json.loads(
+        Cli().delete_reaction(
+            model=str(baseline), reaction=str(delete_spec), output=str(output)
+        )
+    )
+    # THEN a candidate exists, the reaction is gone, and the baseline is untouched.
+    assert output.exists()
+    assert "EXIST" not in load_model(output).reactions
+    assert payload["baseline_sha256"] == before
+    assert file_digest(baseline) == before
+
+
+def test_delete_reaction_refuses_an_identifier_absent_from_the_model(
+    baseline: Path, tmp_path: Path
+) -> None:
+    # GIVEN a request naming a reaction the baseline does not have.
+    delete_spec = tmp_path / "delete.json"
+    delete_spec.write_text(json.dumps({"reaction_id": "NOPE"}), encoding="utf-8")
+    # WHEN deleting it.
+    # THEN it is refused as a request violation, not written as an empty diff.
+    with pytest.raises(RequestViolationError, match="does not exist"):
+        Cli().delete_reaction(
+            model=str(baseline),
+            reaction=str(delete_spec),
+            output=str(tmp_path / "candidate.xml"),
+        )
+
+
+def test_check_and_export_accept_a_deletion_via_the_operation_argument(
+    deletable_baseline: Path, tmp_path: Path
+) -> None:
+    # GIVEN a candidate produced by delete_reaction, on a baseline where EXIST has a
+    # redundant twin (BYPASS) so removing it does not strand anything else.
+    delete_spec = tmp_path / "delete.json"
+    delete_spec.write_text(json.dumps({"reaction_id": "EXIST"}), encoding="utf-8")
+    candidate = tmp_path / "candidate.xml"
+    Cli().delete_reaction(
+        model=str(deletable_baseline), reaction=str(delete_spec), output=str(candidate)
+    )
+    # WHEN checking it with operation="delete_reaction".
+    checked = json.loads(
+        Cli().check(
+            model=str(deletable_baseline),
+            candidate=str(candidate),
+            reaction=str(delete_spec),
+            operation="delete_reaction",
+        )
+    )
+    # THEN it passes, using the removal invariant rather than the addition one.
+    assert checked["status"] == "passed"
+    assert checked["reaction_id"] == "EXIST"
+
+    # WHEN exporting it with the same operation.
+    delivered = tmp_path / "delivered.xml"
+    exported = json.loads(
+        Cli().export(
+            model=str(deletable_baseline),
+            candidate=str(candidate),
+            reaction=str(delete_spec),
+            output=str(delivered),
+            operation="delete_reaction",
+        )
+    )
+    # THEN it is delivered, and MEMOTE ran (this baseline is small enough that it
+    # genuinely executes) with a clean consistency regression.
+    assert delivered.exists()
+    assert exported["status"] == "passed"
+    assert exported["consistency_regression"]["ok"] is True
+
+
+def test_check_rejects_an_add_candidate_when_asked_to_check_a_deletion(
+    baseline: Path, request_file: Path, tmp_path: Path
+) -> None:
+    # GIVEN a candidate produced by add_reaction (adds NEWRXN, EXIST still present).
+    candidate = tmp_path / "candidate.xml"
+    Cli().add_reaction(
+        model=str(baseline), reaction=str(request_file), output=str(candidate)
+    )
+    # WHEN checking it as a deletion of a reaction that was never requested this way.
+    delete_spec = tmp_path / "delete.json"
+    delete_spec.write_text(json.dumps({"reaction_id": "EXIST"}), encoding="utf-8")
+    payload = json.loads(
+        Cli().check(
+            model=str(baseline),
+            candidate=str(candidate),
+            reaction=str(delete_spec),
+            operation="delete_reaction",
+        )
+    )
+    # THEN it fails: EXIST is still present in the candidate, so the requested
+    # removal never happened -- checking the wrong operation type against a real
+    # candidate does not coincidentally pass.
+    assert payload["status"] == "failed"
+    assert any("absent from candidate" in line for line in payload["failed"])
+
+
+def test_operation_argument_rejects_an_unknown_value(
+    baseline: Path, request_file: Path, tmp_path: Path
+) -> None:
+    # GIVEN a candidate and an operation value this package does not implement.
+    candidate = tmp_path / "candidate.xml"
+    Cli().add_reaction(
+        model=str(baseline), reaction=str(request_file), output=str(candidate)
+    )
+    # WHEN checking it with a bogus operation.
+    # THEN it is refused rather than silently defaulting to add_reaction.
+    with pytest.raises(RequestViolationError, match="rename_reaction"):
+        Cli().check(
+            model=str(baseline),
+            candidate=str(candidate),
+            reaction=str(request_file),
+            operation="rename_reaction",
         )
 
 

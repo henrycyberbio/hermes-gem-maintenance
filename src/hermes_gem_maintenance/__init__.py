@@ -6,7 +6,14 @@ guess biology: an ambiguous mapping raises rather than picking a candidate.
 
 from __future__ import annotations
 
-from hermes_gem_maintenance.changes import ReactionRequest, add_reaction
+from hermes_gem_maintenance.changes import (
+    DeleteReactionRequest,
+    ReactionRequest,
+    add_reaction,
+    apply_changeset,
+    delete_reaction,
+    parse_changeset,
+)
 from hermes_gem_maintenance.checks import (
     CheckResult,
     canonical_gpr,
@@ -58,6 +65,7 @@ __all__ = [
     "CheckResult",
     "ConsistencyRegression",
     "ConsistencySnapshot",
+    "DeleteReactionRequest",
     "DependencyMissingError",
     "ExportResult",
     "FeasibilityResult",
@@ -69,17 +77,20 @@ __all__ = [
     "ValidationFailedError",
     "add_reaction",
     "approved_digest",
+    "apply_changeset",
     "build_candidate",
     "canonical_gpr",
     "check_candidate",
     "check_feasibility",
     "compare_consistency",
     "consistency_snapshot",
+    "delete_reaction",
     "describe_metabolite",
     "describe_reaction",
     "diff_snapshots",
     "file_digest",
     "load_model",
+    "parse_changeset",
     "publish_deliverable",
     "require_unique_metabolite",
     "resolve_metabolite",
