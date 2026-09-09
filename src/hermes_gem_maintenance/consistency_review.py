@@ -49,13 +49,19 @@ def consistency_snapshot(model: cobra.Model) -> ConsistencySnapshot:
     as a bare ModuleNotFoundError, so a caller handling `GemMaintenanceError` sees a
     `dependency_missing` category instead of an exception type it never subscribed to.
 
-    `find_blocked_reactions` runs with `processes=1`. Flux variability analysis's
-    default multiprocessing pool uses the spawn start method on Windows, which
-    fails when this function executes from within an already-running interpreter
-    (`python -c "..."`, or any embedding context) rather than a `__main__` script.
-    Running single-process is slower -- tens of seconds on a genome-scale model --
-    but correct in every calling context, which matters more for a one-off delivery
-    gate than the extra wall-clock time.
+    `find_blocked_reactions` runs with `processes=1, open_exchanges=True`.
+    `open_exchanges=True` matches MEMOTE's own `test_blocked_reactions`, which defines
+    "universally blocked" as blocked under complete medium (every boundary reaction
+    opened) -- on this project's baseline model the model's own configured medium
+    reports roughly three times as many blocked reactions as MEMOTE's definition, so
+    using the default would silently answer a different, stricter question than the
+    one MEMOTE reports and this gate claims to mirror. `processes=1`: flux
+    variability analysis's default multiprocessing pool uses the spawn start method
+    on Windows, which fails when this function executes from within an
+    already-running interpreter (`python -c "..."`, or any embedding context) rather
+    than a `__main__` script. Running single-process is slower -- tens of seconds on
+    a genome-scale model -- but correct in every calling context, which matters more
+    for a one-off delivery gate than the extra wall-clock time.
     """
     try:
         import memote.support.consistency as consistency
@@ -77,7 +83,9 @@ def consistency_snapshot(model: cobra.Model) -> ConsistencySnapshot:
         charge_unbalanced=frozenset(
             get_ids(consistency.find_charge_unbalanced_reactions(internal))
         ),
-        blocked_reactions=frozenset(find_blocked_reactions(model, processes=1)),
+        blocked_reactions=frozenset(
+            find_blocked_reactions(model, processes=1, open_exchanges=True)
+        ),
         dead_end_metabolites=frozenset(get_ids(consistency.find_deadends(model))),
         orphan_metabolites=frozenset(get_ids(consistency.find_orphans(model))),
     )

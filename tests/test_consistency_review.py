@@ -110,6 +110,39 @@ def test_consistency_snapshot_detects_a_dead_end_metabolite(
     assert "c_c" in snapshot.dead_end_metabolites
 
 
+def test_consistency_snapshot_uses_complete_medium_for_blocked_reactions(
+    balanced_model: cobra.Model,
+) -> None:
+    # GIVEN a reaction that only carries flux if boundary reactions are opened
+    # beyond the model's own configured bounds. (Regression: find_blocked_reactions
+    # was called without open_exchanges=True, so it answered "blocked under this
+    # model's own medium" -- a stricter, different question from MEMOTE's own
+    # test_blocked_reactions, which defines "universally blocked" as blocked even
+    # under complete medium. On the real project baseline this silently reported
+    # roughly three times as many reactions as MEMOTE itself would flag.)
+    balanced_model.reactions.get_by_id("EX_a_e").bounds = (0.0, 0.0)
+    # The isolated metabolite lives in the extracellular compartment "e", matching
+    # the existing exchanges: cobra classifies a boundary reaction as an "exchange"
+    # (and therefore something open_exchanges=True will re-open) partly by
+    # compartment heuristics, and a reaction in "c" was not picked up as one.
+    isolated = cobra.Metabolite("iso_e", formula="C1", charge=0, compartment="e")
+    balanced_model.add_metabolites([isolated])
+    producer = cobra.Reaction("R_ISO", lower_bound=-1000.0, upper_bound=1000.0)
+    balanced_model.add_reactions([producer])
+    producer.add_metabolites({balanced_model.metabolites.a_e: -1, isolated: 1})
+    # A closed exchange for the new metabolite: R_ISO can only carry flux at all
+    # (in either direction) if this, too, is opened beyond its own (0, 0) bounds.
+    sink = cobra.Reaction("EX_iso_e", lower_bound=0.0, upper_bound=0.0)
+    balanced_model.add_reactions([sink])
+    sink.add_metabolites({isolated: -1})
+    # WHEN taking a snapshot: under the model's own bounds every path through R_ISO
+    # is closed, so only find_blocked_reactions(..., open_exchanges=True) reports it
+    # as carrying flux.
+    snapshot = consistency_snapshot(balanced_model)
+    # THEN it is not reported as blocked, proving open_exchanges=True was honoured.
+    assert "R_ISO" not in snapshot.blocked_reactions
+
+
 # ==== regression ====
 
 
