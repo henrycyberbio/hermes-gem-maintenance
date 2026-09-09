@@ -16,6 +16,7 @@ from cobra.io import write_sbml_model
 from hermes_gem_maintenance import publish as publish_module
 from hermes_gem_maintenance.changes import ReactionRequest
 from hermes_gem_maintenance.cli import Cli
+from hermes_gem_maintenance.consistency_review import ConsistencyRegression
 from hermes_gem_maintenance.errors import (
     InsufficientInformationError,
     ModelIntegrityError,
@@ -639,3 +640,52 @@ def test_export_delivers_a_passing_candidate(
     assert delivered.exists()
     assert payload["status"] == "passed"
     assert payload["delivered_sha256"] == file_digest(delivered)
+    # AND the consistency regression report is present and clean: this baseline
+    # is small enough that MEMOTE genuinely runs against it (not mocked), so this
+    # also proves the gate does not misfire on an ordinary passing change.
+    assert payload["consistency_regression"]["ok"] is True
+
+
+def test_export_refuses_to_deliver_a_candidate_with_a_consistency_regression(
+    baseline: Path, request_file: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # GIVEN a candidate that passes every other check, but a MEMOTE comparison that
+    # reports a regression. Reproducing a genuine MEMOTE-detectable regression
+    # through add_reaction alone would need a model complex enough to expose real
+    # network gaps; the gate's own logic (identifying an actual regression) is
+    # already covered directly in test_consistency_review.py. What is not covered
+    # anywhere else is whether publish_deliverable actually wires that verdict into
+    # a refusal -- a claimed gate with no test exercising its "no" path is not a
+    # verified gate, so this monkeypatches only the comparison outcome, not MEMOTE.
+    candidate = tmp_path / "candidate.xml"
+    Cli().add_reaction(
+        model=str(baseline), reaction=str(request_file), output=str(candidate)
+    )
+    fake_regression = ConsistencyRegression(
+        stoichiometric_consistency_lost=False,
+        new_mass_unbalanced=(),
+        new_charge_unbalanced=(),
+        new_blocked_reactions=("FAKE_BLOCKED",),
+        new_dead_end_metabolites=(),
+        new_orphan_metabolites=(),
+    )
+    monkeypatch.setattr(
+        publish_module, "compare_consistency", lambda before, after: fake_regression
+    )
+    delivered = tmp_path / "delivered.xml"
+    # WHEN exporting it.
+    # THEN delivery is refused, nothing is published, and the regression detail is
+    # attached to the raised error for the caller to act on.
+    with pytest.raises(ValidationFailedError, match="consistency regression") as caught:
+        Cli().export(
+            model=str(baseline),
+            candidate=str(candidate),
+            reaction=str(request_file),
+            output=str(delivered),
+        )
+    assert not delivered.exists()
+    assert caught.value.as_dict()["category"] == "validation_failed"
+    assert "FAKE_BLOCKED" in caught.value.as_dict()["consistency_regression"][
+        "new_blocked_reactions"
+    ]
+    assert not list(tmp_path.glob(".*.partial"))
