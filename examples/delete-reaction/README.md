@@ -18,24 +18,32 @@ one-off observation of this model alone:
 - The BiGG Models database itself flags `ALAt2pp` as "appears 2 times" in every
   *E. coli* K-12-derived model that carries it (`iS_1188`, `iZ_1308`, `iSF_1195`,
   `iAF1260b`, and others), always as the same `_copy1` (gene-associated,
-  irreversible) / `_copy2` (no gene, reversible) split.
+  irreversible) / `_copy2` (no gene, reversible) split — this is a stable feature
+  of this reconstruction lineage, not a one-off artifact of this particular model.
 - Orth *et al.* 2011 ("A comprehensive genome-scale reconstruction of
   *Escherichia coli* metabolism—2011", *Mol Syst Biol* 7:535 — the iJO1366
-  reconstruction that this model's lineage descends from) documents the
-  reconstruction's practice of retaining an *orphan reaction* (a reaction with
-  no associated gene) alongside a gene-associated one specifically to preserve
-  network flux-consistency during automated gap analysis, pending later
-  curation. `_copy2`'s empty `gene_reaction_rule` and its otherwise-identical
-  stoichiometry against `_copy1` match this pattern exactly.
+  reconstruction that this model's lineage descends from) documents "orphan
+  reactions" (reactions with no associated gene) as a formal, quantified category
+  of this reconstruction: Table 1 of that paper reports 58 of 778 transport
+  reactions in iJO1366 (6%) carry no gene association. `ALAt2pp_copy2`'s empty
+  `gene_reaction_rule` places it in this documented category.
 
-**What this evidence does not establish**: no source consulted here says, in so
-many words, "delete `ALAt2pp_copy2` from `iEC1372_W3110`." The claim is narrower
-and stated precisely: this reaction is recognizable as an instance of a
-documented modeling artifact (an orphan duplicate kept for flux-consistency, not
-a distinct metabolic capability), and removing it is expected to leave the
-network's alanine transport capacity unchanged because `ALAt2pp_copy1` already
-carries the same stoichiometry with real gene support. That expectation is what
-this case actually verifies — not a literature-sourced curation decision.
+**What this evidence does not establish**: the paper defines "orphan reaction"
+and quantifies how many exist, but does not state a specific mechanistic reason
+for *this* `_copy1`/`_copy2` duplicate-pair pattern -- an earlier line of inquiry
+in this project's own research considered the hypothesis that such duplicates
+were kept during automated gap-finding specifically to preserve flux-consistency,
+but no primary source consulted here confirms that mechanism for this reaction
+pair, and that hypothesis is not repeated here as established fact. No source
+consulted says, in so many words, "delete `ALAt2pp_copy2` from
+`iEC1372_W3110`." The claim actually supported is narrower: this reaction is
+recognizable as an instance of a formally defined, quantified reconstruction
+category (an orphan duplicate of a gene-associated reaction with identical
+stoichiometry), and removing it is expected to leave the network's alanine
+transport capacity unchanged because `ALAt2pp_copy1` already carries the same
+stoichiometry with real gene support. That expectation is what this case
+actually verifies -- not a literature-sourced curation decision to remove this
+specific reaction.
 
 ## Structural check: is the redundancy real?
 
