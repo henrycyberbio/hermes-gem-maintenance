@@ -1,6 +1,6 @@
 ---
 name: gem-maintenance
-description: "Use when asked to add or edit a reaction in a genome-scale metabolic model (GEM/SBML) — 'add this reaction to the model', 'introduce the phosphoketolase pathway into iML1515', 'update the GEM with this enzyme'. Drives the hermes-gem-maintenance CLI and decides when to ask instead of guess."
+description: "Use when asked to add, delete, or edit a reaction in a genome-scale metabolic model (GEM/SBML) — 'add this reaction to the model', 'introduce the phosphoketolase pathway into iML1515', 'remove this reaction from the model', 'update the GEM with this enzyme'. Drives the hermes-gem-maintenance CLI and decides when to ask instead of guess."
 version: 0.1.0
 license: MIT
 ---
@@ -44,9 +44,17 @@ folder, list it and pick the model file; a manifest such as `<model>.source.json
 sits beside it and is not itself a model.
 
 Read the model before proposing anything. `inspect` gives counts and compartments;
-`inspect --reaction=ID` confirms whether the target already exists. Resolve every
-metabolite the request names with `resolve`, and read `matched_on` — an exact
-identifier hit is not the same evidence as a name substring.
+`inspect --reaction=ID` confirms whether the target already exists (for an
+addition) or is really there (for a deletion). Resolve every metabolite the
+request names with `resolve`, and read `matched_on` — an exact identifier hit is
+not the same evidence as a name substring.
+
+**Decide add or delete from what the request asks for, not from a default.** A
+request to introduce, add, or extend the model with a reaction is `add_reaction`.
+A request to remove, delete, or take out a reaction is `delete_reaction`. This
+choice becomes the changeset's `type` field and nothing else in the workflow
+depends on which one it is — the same `check`/`export` commands validate both,
+against an inverted invariant each command derives from `type` itself.
 
 COBRApy writes progress and solver notes to stderr; stdout carries nothing but the
 JSON payload. To consume a result, discard stderr — `... 2>/dev/null` — and parse
@@ -58,19 +66,33 @@ Either way the pipeline reports grep's exit status rather than the command's, so
 failed call can look successful. Judge success by the payload — a `category` field
 means it failed — or add `set -o pipefail`.
 
-Build the structured definition yourself: reaction ID, stoichiometry keyed by
-model-native metabolite IDs with signed coefficients, bounds, and the gene rule when
-the request supplies one. Free text never reaches the writer.
+**For an addition**, build the structured operation yourself: reaction ID,
+stoichiometry keyed by model-native metabolite IDs with signed coefficients,
+bounds, and the gene rule when the request supplies one. Free text never reaches
+the writer. Every field must trace to the request or to the model you just
+inspected. Worked examples in the documentation show the *shape* of a payload,
+never the values for your task — if you find yourself copying an identifier or a
+coefficient out of a reference file, you have stopped deriving and started
+guessing.
 
-Every field must trace to the request or to the model you just inspected. Worked
-examples in the documentation show the *shape* of a payload, never the values for
-your task — if you find yourself copying an identifier or a coefficient out of a
-reference file, you have stopped deriving and started guessing.
+**For a deletion**, the operation needs only the reaction ID the request names —
+there is no stoichiometry, bounds, or gene rule to derive, because nothing about
+those fields is being asserted. Confirm the ID with `inspect --reaction=ID` before
+building the changeset; `delete_reaction` refuses an absent ID as a
+`request_violation`; do not let that be the first time you learn it does not
+exist.
 
-Then `add_reaction` to a fresh path, `check` the result, and `export` only once the
-checks pass. Write each run's request, definition, candidate, checks, and delivered
-model to its own directory. When a run stops early, say where it stopped and why, and
-do not leave a deliverable behind that implies success.
+Either operation is wrapped in the same envelope before it reaches any command:
+`{"operations": [{"type": "add_reaction" | "delete_reaction", ...}]}`. Write it to
+its own changeset file per run rather than editing one file in place across
+attempts — a stale changeset from a previous run is how a delete request gets
+silently re-validated as an add.
+
+Then `add_reaction` or `delete_reaction` to a fresh output path, `check` the
+result, and `export` only once the checks pass. Write each run's request,
+changeset, candidate, checks, and delivered model to its own directory. When a run
+stops early, say where it stopped and why, and do not leave a deliverable behind
+that implies success.
 
 Recovery is always to regenerate a candidate from the untouched baseline. Never
 repair a candidate in place — a candidate whose history you cannot reconstruct is not
@@ -83,8 +105,8 @@ for three different responses:
 
 | Category | What happened | What to do |
 | --- | --- | --- |
-| `insufficient_information` | A required field is absent, or a name matched several metabolites | Ask one specific question naming the candidates. Do not choose. |
-| `request_violation` | Duplicate reaction ID, unknown metabolite, invalid bounds | The request conflicts with the model. Report the conflict with the evidence; more facts will not fix it. |
+| `insufficient_information` | A required field is absent, or a name matched several metabolites or reactions | Ask one specific question naming the candidates. Do not choose. |
+| `request_violation` | Duplicate reaction ID, unknown metabolite, invalid bounds, or a delete naming a reaction absent from the baseline | The request conflicts with the model. Report the conflict with the evidence; more facts will not fix it. |
 | `validation_failed` | A candidate did not pass its checks | The baseline is fine and the tool worked. Diagnose, then regenerate from the baseline. |
 | `model_integrity` | Baseline digest mismatch, or a write would clobber a file | Stop. The inputs are not what they claim to be. |
 
@@ -156,8 +178,9 @@ Only a genuine conflict or a genuine gap goes back to the user.
   only that the file did not change during the command, not that it is the approved
   artifact; the payload's `baseline_verified_against` says which you got. The example
   model's manifest sits beside it as `<model>.source.json`.
-- **The output path must not exist.** Both `add_reaction` and `export` refuse an
-  existing file rather than overwrite evidence. Use a new path per attempt.
+- **The output path must not exist.** `add_reaction`, `delete_reaction`, and
+  `export` all refuse an existing file rather than overwrite evidence. Use a new
+  path per attempt.
 - **Zero candidates usually means the query wording, not an absent metabolite.**
   Matching is literal substring, so punctuation and word order matter: the model
   writes `D-Fructose 6-phosphate`, and `fructose-6-phosphate` — the way a requester
@@ -185,6 +208,26 @@ Only a genuine conflict or a genuine gap goes back to the user.
 - **A reversible database entry is not a decision.** When a source records a reaction
   as reversible and the request implies one direction, surface the discrepancy
   instead of settling it silently.
+- **A deletion is far more likely to fail at `export` than at `check`.** Removing a
+  reaction can leave a metabolite with no other producer or consumer, or strand a
+  pathway that only became unreachable once this one link was cut. `check` cannot
+  see this — its only assertions about a deletion are "the named reaction is gone"
+  and "nothing else changed" — so a deletion routinely passes `check` and is still
+  correctly refused by `export`'s MEMOTE regression comparison (new blocked
+  reactions, new dead-end metabolites). This is not a bug in either command: `check`
+  and `export` are answering different questions, and a passing `check` on a
+  deletion is weaker evidence of soundness than a passing `check` on an addition.
+  Do not report a deletion as validated until `export` itself has passed.
+- **A deletion refused by `export` cannot currently be delivered anyway, even when
+  the consequence was intended.** MEMOTE reporting a newly blocked reaction or
+  dead-end metabolite might be the exact result the request described (e.g.
+  "remove this whole pathway") — but `export` refuses to publish on any new
+  regression unconditionally; there is no flag or override that accepts an
+  "expected" one. Do not imply to the requester that confirming intent will let the
+  same export succeed. Report what MEMOTE found, and if the requester confirms it
+  was expected, say plainly that this MVP does not yet support delivering a
+  deletion with a known, accepted regression — that is a real gap, not something
+  you can work around from this side.
 
 ## Verification
 

@@ -83,7 +83,12 @@ unchanged growth rate (`check` passes), but MEMOTE's before/after comparison fin
 that `PTAr` -- previously `ACKr`'s only other consumer of `actp_c` -- becomes
 newly blocked. `export` refuses to publish that candidate. A change can be
 locally well-formed and still degrade the network in a way only a whole-model
-check catches.
+check catches. The reverse case is documented too:
+[`examples/delete-reaction/`](examples/delete-reaction/) removes
+`ALAt2pp_copy2` -- a documented orphan duplicate of the gene-associated
+`ALAt2pp_copy1` -- and passes both `check` and `export` cleanly, with an
+honestly-scoped account of what the evidence for that case does and does not
+establish.
 
 The CLI is a thin wrapper: it calls `build_candidate` and `publish_deliverable` from
 the package, so a Python caller gets the same guarantees. See
@@ -127,6 +132,7 @@ uvx ruff check .
 | `skills/gem-maintenance/` | Hermes skill driving the CLI from a request |
 | `scripts/` | Walkthrough and citation renderer |
 | `examples/add-reaction/` | Frozen model, changeset, evidence |
+| `examples/delete-reaction/` | A genuine deletion case: `ALAt2pp_copy2`, passing end to end |
 | `examples/scenarios/` | Requests the workflow should refuse or correct |
 | `examples/records/` | Recorded CLI output for the example and scenarios |
 | `docs/` | Case selection, reference data, citation style |
