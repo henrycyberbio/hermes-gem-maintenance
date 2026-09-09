@@ -51,16 +51,19 @@ uv run hermes-gem-maintenance export   --model=MODEL --candidate=CAND.xml --reac
 `resolve` returns every plausible match with the reason it matched and never picks a
 winner; choosing between candidates is the caller's judgment. `check` runs the
 candidate against the request and reports elemental/charge balance and FBA
-feasibility under the model's own bounds and objective. `export` re-checks the
-candidate, additionally compares MEMOTE consistency results (stoichiometric
-consistency, mass/charge balance, blocked reactions, dead-end and orphan
-metabolites) between the baseline and the staged deliverable, stages the
-deliverable, reads it back and checks it again, then publishes without overwriting
-anything at the destination. `export` requires the `memote` optional dependency
-group (`uv sync --extra memote`) and typically takes one to several minutes on a
-genome-scale model, dominated by flux variability analysis for blocked reactions.
-`--source_manifest` asserts which model the caller expected; the result's
-`baseline_verified_against` names the guarantee actually obtained.
+feasibility under the model's own bounds and objective; every payload from `check`
+carries `"scope": "structural"`. `export` re-checks the candidate, additionally
+compares MEMOTE consistency results (stoichiometric consistency, mass/charge
+balance, blocked reactions, dead-end and orphan metabolites) between the baseline
+and the staged deliverable, and its payload carries `"scope": "export"` instead --
+so a caller reading either payload can tell which layers actually ran without
+consulting this README. `export` stages the deliverable, reads it back and checks
+it again, then publishes without overwriting anything at the destination.
+`export` requires the `memote` optional dependency group (`uv sync --extra
+memote`) and typically takes one to several minutes on a genome-scale model,
+dominated by flux variability analysis for blocked reactions. `--source_manifest`
+asserts which model the caller expected; the result's `baseline_verified_against`
+names the guarantee actually obtained.
 
 The CLI is a thin wrapper: it calls `build_candidate` and `publish_deliverable` from
 the package, so a Python caller gets the same guarantees. See

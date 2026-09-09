@@ -67,9 +67,24 @@ class CheckResult:
         """True when something definitively failed, as opposed to being undecided."""
         return bool(self.failed)
 
+    @property
+    def scope(self) -> str:
+        """Which validation layers this result covers.
+
+        `check_candidate` always returns "structural": layer 1 (this package's own
+        request/candidate comparison) plus layer 2 (elemental/charge balance and FBA
+        feasibility). It never runs MEMOTE. `ExportResult.as_dict()` overrides this
+        field to "export" once `publish_deliverable` has additionally compared MEMOTE
+        consistency results against the baseline -- so a caller reading a bare
+        `CheckResult` payload (from the `check` command) can tell, without consulting
+        documentation, that a passing `status` here does not mean `export` on the
+        same candidate would also pass.
+        """
+        return "structural"
+
     def as_dict(self) -> dict[str, Any]:
         """Structured form for JSON output."""
-        return {**asdict(self), "status": self.status}
+        return {**asdict(self), "status": self.status, "scope": self.scope}
 
 
 # ==== gene rule comparison ====

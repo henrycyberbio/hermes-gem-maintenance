@@ -75,7 +75,13 @@ class ExportResult:
     consistency_regression: dict[str, Any]
 
     def as_dict(self) -> dict[str, Any]:
-        """Structured form for JSON output."""
+        """Structured form for JSON output.
+
+        `scope` is set to "export" last, after `**self.checks`, so it overrides the
+        "structural" value `CheckResult.as_dict()` always reports -- the checks in
+        `self.checks` only covered layers 1-2 when they ran, but this payload as a
+        whole also reflects the MEMOTE comparison in `consistency_regression`.
+        """
         return {
             "reaction_id": self.reaction_id,
             "delivered": self.delivered.name,
@@ -83,6 +89,7 @@ class ExportResult:
             "baseline_verified_against": self.baseline_verified_against,
             "consistency_regression": self.consistency_regression,
             **self.checks,
+            "scope": "export",
         }
 
 

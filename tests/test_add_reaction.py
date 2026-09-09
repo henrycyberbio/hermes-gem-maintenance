@@ -162,6 +162,20 @@ def test_check_passes_for_a_faithful_candidate(
     assert any("balanced" in line for line in result.passed)
 
 
+def test_check_result_reports_structural_scope(
+    model: cobra.Model, request_: ReactionRequest
+) -> None:
+    # GIVEN any candidate checked through check_candidate (never through export).
+    candidate = model.copy()
+    add_reaction(candidate, request_)
+    # WHEN checking it and reading the JSON payload.
+    result = check_candidate(model, candidate, request_)
+    # THEN the payload names its own scope: a passing check here does not mean a
+    # MEMOTE-backed export of the same candidate would also pass, and a caller
+    # should be able to tell that from the payload alone, not just documentation.
+    assert result.as_dict()["scope"] == "structural"
+
+
 def test_check_detects_stoichiometry_that_ignores_the_request(
     model: cobra.Model, request_: ReactionRequest
 ) -> None:

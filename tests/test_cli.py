@@ -238,6 +238,9 @@ def test_check_passes_a_candidate_produced_by_add_reaction(
     # THEN it passes; the roundtrip through SBML must not invalidate a good candidate.
     assert payload["status"] == "passed"
     assert payload["failed"] == []
+    # AND the payload names its own scope: the CLI's `check` command never runs
+    # MEMOTE, so this passing result must not be read as "export would also pass".
+    assert payload["scope"] == "structural"
 
 
 def test_export_refuses_to_deliver_a_failing_candidate(
@@ -644,6 +647,10 @@ def test_export_delivers_a_passing_candidate(
     # is small enough that MEMOTE genuinely runs against it (not mocked), so this
     # also proves the gate does not misfire on an ordinary passing change.
     assert payload["consistency_regression"]["ok"] is True
+    # AND the payload's own scope says "export", not the "structural" value every
+    # bare CheckResult reports -- this is the field that lets a caller distinguish
+    # a `check` payload from an `export` payload without consulting documentation.
+    assert payload["scope"] == "export"
 
 
 def test_export_refuses_to_deliver_a_candidate_with_a_consistency_regression(
