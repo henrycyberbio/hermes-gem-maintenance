@@ -28,7 +28,7 @@ uv run hermes-gem-maintenance resolve  --model=MODEL --query=NAME [--compartment
 uv run hermes-gem-maintenance add_reaction --model=MODEL --changeset=CHANGESET.json --output=CAND.xml
 uv run hermes-gem-maintenance delete_reaction --model=MODEL --changeset=CHANGESET.json --output=CAND.xml
 uv run hermes-gem-maintenance check    --model=MODEL --candidate=CAND.xml --changeset=CHANGESET.json [--record_directory=RUN-DIR]
-uv run hermes-gem-maintenance export   --model=MODEL --candidate=CAND.xml --changeset=CHANGESET.json --output=OUT.xml [--record_directory=RUN-DIR]
+uv run hermes-gem-maintenance export   --model=MODEL --candidate=CAND.xml --changeset=CHANGESET.json --output=OUT.xml [--candidate_sha256=DIGEST] [--record_directory=RUN-DIR]
 ```
 
 Every command prints JSON and exits non-zero on a deliberate error. Errors carry a
@@ -89,7 +89,9 @@ attempts — a stale changeset from a previous run is how a delete request gets
 silently re-validated as an add.
 
 Then `add_reaction` or `delete_reaction` to a fresh output path, `check` the result,
-and `export` only once the checks pass. Hermes supplies a fresh run directory and
+and `export` only once the checks pass. Pass the candidate SHA-256 reported by the
+build command into export so candidate replacement between commands is detected.
+Hermes supplies a fresh run directory and
 owns request, trajectory, summary, and run-status files; the package records only
 candidate and model-validation artifacts. Pass the same directory to `check` and
 `export` when retaining the package artifacts; each file is written independently

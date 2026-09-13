@@ -155,6 +155,7 @@ def publish_deliverable(
     *,
     manifest: Path | None = None,
     expected_sha256: str = "",
+    candidate_sha256: str = "",
     record_directory: Path | None = None,
 ) -> ExportResult:
     """Re-check a candidate and publish it only if the published bytes are sound.
@@ -175,9 +176,14 @@ def publish_deliverable(
             protected=baseline,
         )
     before = verify_source(baseline, manifest=manifest, expected=expected_sha256)
+    candidate_before = verify_source(
+        candidate, manifest=None, expected=candidate_sha256
+    )
     baseline_verified_against = provenance_label(manifest, expected_sha256)
     base_model = load_model(baseline)
-    result = check_candidate(base_model, load_model(candidate), request)
+    proposed = load_model(candidate)
+    proposed_state = semantic_snapshot(proposed)
+    result = check_candidate(base_model, proposed, request)
     if not result.ok:
         _write_validation_summary(
             record_directory,
@@ -189,7 +195,7 @@ def publish_deliverable(
         _refuse_unless_passed(result, "candidate")
 
     with staged_write(destination, protected=baseline) as staged:
-        write_sbml_model(load_model(candidate), str(staged))
+        write_sbml_model(proposed, str(staged))
 
         # Reading the staged file back is the point: a writer that returns cleanly
         # having emitted unusable bytes would otherwise be published with a passing
@@ -208,9 +214,7 @@ def publish_deliverable(
 
         # Compare the semantic content of the candidate and staged deliverable so the
         # checks and artifacts describe the bytes that are about to be published.
-        drift = diff_snapshots(
-            semantic_snapshot(load_model(candidate)), semantic_snapshot(published)
-        )
+        drift = diff_snapshots(proposed_state, semantic_snapshot(published))
         if drift:
             staged_result.record(
                 "staged deliverable matches candidate", ok=False, detail=str(drift)
@@ -227,6 +231,7 @@ def publish_deliverable(
             raise ValidationFailedError(msg, drift=drift, **staged_result.as_dict())
 
         verify_digest(baseline, before)
+        verify_digest(candidate, candidate_before)
         digest = file_digest(staged)
 
         # Review the staged bytes, not the candidate before serialization.

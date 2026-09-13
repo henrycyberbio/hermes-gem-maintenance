@@ -214,6 +214,7 @@ class Cli:
         source_manifest: str = "",
         expected_sha256: str = "",
         record_directory: str = "",
+        candidate_sha256: str = "",
     ) -> str:
         """Re-check a candidate and write the deliverable only if it passes.
 
@@ -240,6 +241,8 @@ class Cli:
                 baseline must match the SHA-256 it records.
             expected_sha256: The approved digest, if there is no manifest.
             record_directory: Optional directory for package-owned export artifacts.
+            candidate_sha256: Digest reported when the candidate was built. When
+                given, export refuses candidate bytes that changed between commands.
         """
         request = parse_changeset(_read_json(Path(changeset)))
         result = publish_deliverable(
@@ -249,6 +252,7 @@ class Cli:
             Path(output),
             manifest=Path(source_manifest) if source_manifest else None,
             expected_sha256=expected_sha256,
+            candidate_sha256=candidate_sha256,
             record_directory=Path(record_directory) if record_directory else None,
         )
         return _emit(result.as_dict())

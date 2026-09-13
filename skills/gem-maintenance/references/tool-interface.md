@@ -262,7 +262,7 @@ export artifact is implied.
 ## export
 
 ```bash
-uv run hermes-gem-maintenance export --model=MODEL --candidate=CAND.xml --changeset=CHANGESET.json --output=OUT.xml [--record_directory=RUN-DIR]
+uv run hermes-gem-maintenance export --model=MODEL --candidate=CAND.xml --changeset=CHANGESET.json --output=OUT.xml [--candidate_sha256=DIGEST] [--record_directory=RUN-DIR]
 ```
 
 Re-loads the candidate from disk, re-runs every check, **writes the deliverable to a
@@ -352,6 +352,10 @@ from hermes_gem_maintenance import (
 `save_candidate` yourself: the source verification, staged write, re-check of the
 published bytes and no-clobber publication live inside them, so hand-rolling the
 sequence produces a weaker artifact that looks the same.
+
+Pass the `candidate_sha256` from `build_candidate` into `publish_deliverable` to pin
+the candidate across separate build and export commands. Without it, export still
+pins the candidate for its own duration but cannot detect replacement before it began.
 
 `publish_deliverable(..., record_directory=RUN_DIR)` persists the two completed
 MEMOTE snapshots and `validation_summary.json` while retaining the ordinary return

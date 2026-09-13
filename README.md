@@ -48,7 +48,7 @@ uv run hermes-gem-maintenance resolve  --model=MODEL --query=NAME [--compartment
 uv run hermes-gem-maintenance add_reaction --model=MODEL --changeset=CHANGESET.json --output=CAND.xml [--source_manifest=SRC.json]
 uv run hermes-gem-maintenance delete_reaction --model=MODEL --changeset=CHANGESET.json --output=CAND.xml [--source_manifest=SRC.json]
 uv run hermes-gem-maintenance check    --model=MODEL --candidate=CAND.xml --changeset=CHANGESET.json [--record_directory=RUN-DIR]
-uv run hermes-gem-maintenance export   --model=MODEL --candidate=CAND.xml --changeset=CHANGESET.json --output=OUT.xml [--record_directory=RUN-DIR] [--source_manifest=SRC.json]
+uv run hermes-gem-maintenance export   --model=MODEL --candidate=CAND.xml --changeset=CHANGESET.json --output=OUT.xml [--candidate_sha256=DIGEST] [--record_directory=RUN-DIR] [--source_manifest=SRC.json]
 ```
 
 Every operation -- addition or deletion -- is described the same way: a changeset
@@ -78,6 +78,10 @@ memote`) and typically takes one to several minutes on a genome-scale model,
 dominated by flux variability analysis for blocked reactions. `--source_manifest`
 asserts which model the caller expected; the result's `baseline_verified_against`
 names the guarantee actually obtained.
+
+Pass the `candidate_sha256` reported by `add_reaction` or `delete_reaction` to
+`export` when the commands are separate. This pins the candidate across that gap;
+export still verifies it again immediately before publication.
 
 `record_directory` is optional and preserves stdout/API behavior. `check` records
 `semantic_diff.json` and `local_checks.json`; `export` records the two MEMOTE

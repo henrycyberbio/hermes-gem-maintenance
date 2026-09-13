@@ -16,7 +16,6 @@ from hermes_gem_maintenance.changes import (
 )
 from hermes_gem_maintenance.checks import (
     CheckResult,
-    canonical_gpr,
     check_candidate,
     diff_snapshots,
     semantic_snapshot,
@@ -38,6 +37,11 @@ from hermes_gem_maintenance.errors import (
     ValidationFailedError,
 )
 from hermes_gem_maintenance.feasibility import FeasibilityResult, check_feasibility
+from hermes_gem_maintenance.gpr import (
+    UncomparableGPRError,
+    canonical_gpr,
+    comparable_gpr,
+)
 from hermes_gem_maintenance.inspect import (
     describe_metabolite,
     describe_reaction,
@@ -50,7 +54,6 @@ from hermes_gem_maintenance.model_io import (
     approved_digest,
     file_digest,
     load_model,
-    save_candidate,
     staged_write,
     verify_digest,
     verify_source,
@@ -77,6 +80,7 @@ __all__ = [
     "ModelIntegrityError",
     "ReactionRequest",
     "RequestViolationError",
+    "UncomparableGPRError",
     "ValidationFailedError",
     "add_reaction",
     "approved_digest",
@@ -86,6 +90,7 @@ __all__ = [
     "check_candidate",
     "check_feasibility",
     "compare_consistency",
+    "comparable_gpr",
     "consistency_snapshot",
     "delete_reaction",
     "describe_metabolite",
@@ -98,7 +103,6 @@ __all__ = [
     "require_unique_metabolite",
     "resolve_metabolite",
     "review_consistency",
-    "save_candidate",
     "semantic_snapshot",
     "staged_write",
     "summarize",

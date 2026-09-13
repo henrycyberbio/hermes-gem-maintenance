@@ -175,7 +175,7 @@ def test_check_rejects_an_extra_removal_alongside_the_requested_one(
     result = check_candidate(model, candidate, request)
     # THEN the extra removal fails the invariant.
     assert not result.ok
-    assert any("exactly the requested removal" in line for line in result.failed)
+    assert any("no unrelated semantic changes" in line for line in result.failed)
 
 
 # ==== changeset envelope ====

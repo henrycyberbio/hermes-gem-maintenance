@@ -15,7 +15,6 @@ from hermes_gem_maintenance import (
     file_digest,
     require_unique_metabolite,
     resolve_metabolite,
-    save_candidate,
     staged_write,
     summarize,
     verify_digest,
@@ -26,7 +25,7 @@ from hermes_gem_maintenance.errors import (
     ModelIntegrityError,
 )
 from hermes_gem_maintenance.inspect import WEAK_MATCH_CEILING
-from hermes_gem_maintenance.model_io import write_json_artifact
+from hermes_gem_maintenance.model_io import save_candidate, write_json_artifact
 
 
 def test_json_artifact_writer_is_not_part_of_the_package_api() -> None:

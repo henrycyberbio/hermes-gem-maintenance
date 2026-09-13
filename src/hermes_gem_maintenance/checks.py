@@ -7,14 +7,16 @@ nothing else.
 
 from __future__ import annotations
 
-import ast
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from cobra.core.gene import GPR
-
 from hermes_gem_maintenance.changes import DeleteReactionRequest
 from hermes_gem_maintenance.feasibility import check_feasibility
+from hermes_gem_maintenance.gpr import (
+    UncomparableGPRError,
+    canonical_gpr,
+    comparable_gpr,
+)
 
 if TYPE_CHECKING:
     import cobra
@@ -95,49 +97,6 @@ class CheckResult:
         }
 
 
-# ==== gene rule comparison ====
-
-
-def canonical_gpr(rule: str) -> object:
-    """Logic-only form of a gene rule.
-
-    COBRApy drops redundant parentheses when writing SBML, so `(A and B) and C`
-    returns as `A and B and C`. Comparing rule strings reports those rewrites as
-    modifications -- on a real model, for dozens of untouched reactions. Flatten
-    nested same-operator nodes and sort operands so the comparison sees the boolean
-    logic rather than the syntax.
-
-    Use this at every site that compares gene rules. Comparing raw strings anywhere
-    reintroduces the bug for candidates that have been through a file.
-    """
-    if not rule:
-        return ""
-
-    def walk(node: ast.AST) -> object:
-        if isinstance(node, ast.Name):
-            return node.id
-        if isinstance(node, ast.BoolOp):
-            operator = "and" if isinstance(node.op, ast.And) else "or"
-            operands: list[object] = []
-            for value in node.values:
-                child = walk(value)
-                if isinstance(child, tuple) and child[0] == operator:
-                    operands.extend(child[1])
-                else:
-                    operands.append(child)
-            return (operator, tuple(sorted(operands, key=str)))
-        if isinstance(node, ast.Expression):
-            return walk(node.body)
-        if isinstance(node, ast.Expr):
-            return walk(node.value)
-        if isinstance(node, ast.Module):
-            body = node.body
-            return walk(body[0] if isinstance(body, list) else body)
-        return str(node)
-
-    return walk(GPR.from_string(rule))
-
-
 # ==== semantic comparison ====
 
 # Model content the snapshot deliberately does not compare. Annotations and notes are
@@ -160,7 +119,7 @@ def semantic_snapshot(model: cobra.Model) -> dict[str, Any]:
             r.id: {
                 "stoichiometry": {m.id: c for m, c in r.metabolites.items()},
                 "bounds": list(r.bounds),
-                "gene_reaction_rule": canonical_gpr(r.gene_reaction_rule),
+                "gene_reaction_rule": comparable_gpr(r.gene_reaction_rule),
                 "name": r.name or "",
                 "subsystem": r.subsystem or "",
             }
@@ -264,12 +223,7 @@ def _check_add(
     # Compared unconditionally, including when the request left the field empty:
     # a candidate that invents a gene rule, name or subsystem the requester never
     # asked for is exactly the silent edit these checks exist to catch.
-    result.record(
-        "gene rule matches request",
-        ok=canonical_gpr(reaction.gene_reaction_rule)
-        == canonical_gpr(request.gene_reaction_rule),
-        detail=reaction.gene_reaction_rule or "(none)",
-    )
+    result.record("gene rule matches request", **_gene_rule_verdict(reaction, request))
     result.record(
         "name matches request",
         ok=(reaction.name or "") == request.name,
@@ -296,9 +250,14 @@ def _check_add(
     # the diff shape is the actual contract of an "add" operation, and reading it
     # here is how a future change to the guard gets caught.
     result.record(
-        "diff is exactly the requested addition",
+        "no unrelated semantic changes",
         ok=added == [request.reaction_id] and not unrelated,
-        detail=str(unrelated) if unrelated else f"added: {added}",
+        detail=(
+            str(unrelated)
+            if unrelated
+            else "requested addition; not compared: "
+            + ", ".join(EXCLUDED_FROM_SNAPSHOT)
+        ),
     )
     return result
 
@@ -351,11 +310,27 @@ def _check_delete(
     unrelated = _unrelated_changes(diff, expected_removed=request.reaction_id)
     removed = diff.get("reactions", {}).get("removed", [])
     result.record(
-        "diff is exactly the requested removal",
+        "no unrelated semantic changes",
         ok=removed == [request.reaction_id] and not unrelated,
-        detail=str(unrelated) if unrelated else f"removed: {removed}",
+        detail=(
+            str(unrelated)
+            if unrelated
+            else f"requested removal; not compared: {', '.join(EXCLUDED_FROM_SNAPSHOT)}"
+        ),
     )
     return result
+
+
+def _gene_rule_verdict(
+    reaction: cobra.Reaction, request: ReactionRequest
+) -> dict[str, Any]:
+    """Compare gene logic, or report that one side cannot be reduced."""
+    stored = reaction.gene_reaction_rule or ""
+    try:
+        same = canonical_gpr(stored) == canonical_gpr(request.gene_reaction_rule)
+    except UncomparableGPRError as exc:
+        return {"ok": None, "detail": f"rule cannot be reduced to logic: {exc}"}
+    return {"ok": same, "detail": stored or "(none)"}
 
 
 def _subsystem_verdict(
