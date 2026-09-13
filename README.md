@@ -32,9 +32,11 @@ uv run python scripts/add_reaction_walkthrough.py run
 ```
 
 Adds reaction `PKETF` to the frozen `iEC1372_W3110` model and writes `candidate.xml`
-plus the check artifacts to `runs/PKETF/`. Eight checks run: reaction present,
-stoichiometry, bounds, gene rule, elemental and charge conservation, no unrelated
-semantic changes, SBML roundtrip, input unchanged.
+plus the check artifacts to `runs/PKETF/`. Ten checks run: reaction absent from
+the baseline and present in the candidate, stoichiometry, bounds, gene rule, name,
+subsystem, elemental and charge conservation, FBA feasibility, no unrelated semantic
+changes. Candidate construction separately verifies the source digest and SBML
+roundtrip before publishing `candidate.xml`.
 
 ### The commands
 

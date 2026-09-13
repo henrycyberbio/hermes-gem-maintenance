@@ -10,6 +10,7 @@ import pytest
 from cobra.io import read_sbml_model, write_sbml_model
 
 from hermes_gem_maintenance import (
+    CheckResult,
     ReactionRequest,
     add_reaction,
     canonical_gpr,
@@ -146,6 +147,16 @@ def test_add_reaction_leaves_the_base_model_untouched(
 
 
 # ==== checking candidates ====
+
+
+def test_check_result_payload_does_not_expose_mutable_internal_lists() -> None:
+    # GIVEN a completed check result and its serialized payload.
+    result = CheckResult(passed=["original"])
+    payload = result.as_dict()
+    # WHEN a caller modifies the payload it owns.
+    payload["passed"].append("caller edit")
+    # THEN the check result remains unchanged.
+    assert result.passed == ["original"]
 
 
 def test_check_passes_for_a_faithful_candidate(

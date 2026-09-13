@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import cobra
 import pytest
 
+import hermes_gem_maintenance
 from hermes_gem_maintenance import (
     describe_metabolite,
     describe_reaction,
@@ -30,8 +31,6 @@ from hermes_gem_maintenance.model_io import write_json_artifact
 
 def test_json_artifact_writer_is_not_part_of_the_package_api() -> None:
     # GIVEN the package API, which exposes model operations rather than raw writers.
-    import hermes_gem_maintenance
-
     # WHEN checking its public surface.
     # THEN the audit helper remains internal to model_io.
     assert not hasattr(hermes_gem_maintenance, "write_json_artifact")

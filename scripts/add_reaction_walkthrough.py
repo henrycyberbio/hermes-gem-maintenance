@@ -13,18 +13,13 @@ from pathlib import Path
 import fire
 
 from hermes_gem_maintenance import (
-    add_reaction,
+    build_candidate,
     check_candidate,
-    diff_snapshots,
-    file_digest,
     load_model,
     parse_changeset,
-    save_candidate,
-    semantic_snapshot,
-    verify_digest,
 )
 from hermes_gem_maintenance.errors import GemMaintenanceError, ModelIntegrityError
-from hermes_gem_maintenance.model_io import write_json_artifact
+from hermes_gem_maintenance.model_io import write_check_artifacts
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE = REPO_ROOT / "examples" / "add-reaction"
@@ -49,8 +44,6 @@ class Walkthrough:
             json.loads(CHANGESET.read_text(encoding="utf-8")),
             expected_type="add_reaction",
         )
-        manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        before = verify_digest(BASE_MODEL, manifest["artifact"]["sha256"])
 
         destination = (
             Path(output_dir)
@@ -62,44 +55,15 @@ class Walkthrough:
             raise ModelIntegrityError(msg, path=destination.name)
         destination.mkdir(parents=True, exist_ok=True)
 
+        candidate_path = destination / "candidate.xml"
+        build_candidate(BASE_MODEL, request, candidate_path, manifest=MANIFEST)
         base = load_model(BASE_MODEL)
-        candidate = base.copy()
-        add_reaction(candidate, request)
+        candidate = load_model(candidate_path)
         result = check_candidate(base, candidate, request)
-
-        candidate_path = save_candidate(
-            candidate, destination / "candidate.xml", protected=BASE_MODEL
-        )
-
-        # Re-check from disk: serialization is where silent normalization surfaces.
-        reloaded = load_model(candidate_path)
-        roundtrip = diff_snapshots(
-            semantic_snapshot(candidate), semantic_snapshot(reloaded)
-        )
-        result.record(
-            "survives SBML roundtrip",
-            ok=not roundtrip,
-            detail=str(roundtrip or "identical"),
-        )
-        result.record(
-            "input unchanged",
-            ok=file_digest(BASE_MODEL) == before,
-            detail=before[:16],
-        )
-
-        report = {
-            "reaction_id": request.reaction_id,
-            "input_sha256": before,
-            "candidate_sha256": file_digest(candidate_path),
-            **result.as_dict(),
-        }
-        write_json_artifact(
-            destination / "semantic_diff.json",
-            diff_snapshots(semantic_snapshot(base), semantic_snapshot(reloaded)),
-            protected=BASE_MODEL,
-        )
-        write_json_artifact(
-            destination / "local_checks.json",
+        report = {"reaction_id": request.reaction_id, **result.as_dict()}
+        write_check_artifacts(
+            destination,
+            result.semantic_diff,
             report,
             protected=BASE_MODEL,
         )

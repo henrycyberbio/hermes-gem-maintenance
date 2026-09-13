@@ -15,11 +15,7 @@ from typing import Any
 import fire
 
 from hermes_gem_maintenance.changes import parse_changeset
-from hermes_gem_maintenance.checks import (
-    check_candidate,
-    diff_snapshots,
-    semantic_snapshot,
-)
+from hermes_gem_maintenance.checks import check_candidate
 from hermes_gem_maintenance.errors import (
     GemMaintenanceError,
     RequestViolationError,
@@ -31,11 +27,7 @@ from hermes_gem_maintenance.inspect import (
     summarize,
     unique_match,
 )
-from hermes_gem_maintenance.model_io import (
-    load_model,
-    verify_output_paths,
-    write_json_artifact,
-)
+from hermes_gem_maintenance.model_io import load_model, write_check_artifacts
 from hermes_gem_maintenance.publish import build_candidate, publish_deliverable
 
 logger = logging.getLogger(__name__)
@@ -205,20 +197,12 @@ class Cli:
         result = check_candidate(base_model, candidate_model, request)
         payload = {"reaction_id": request.reaction_id, **result.as_dict()}
         if record_directory:
-            directory = Path(record_directory)
-            artifacts = (
-                directory / "semantic_diff.json",
-                directory / "local_checks.json",
-            )
-            verify_output_paths(artifacts, protected=Path(model))
-            write_json_artifact(
-                artifacts[0],
-                diff_snapshots(
-                    semantic_snapshot(base_model), semantic_snapshot(candidate_model)
-                ),
+            write_check_artifacts(
+                Path(record_directory),
+                result.semantic_diff,
+                payload,
                 protected=Path(model),
             )
-            write_json_artifact(artifacts[1], payload, protected=Path(model))
         return _emit(payload)
 
     def export(

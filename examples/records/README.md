@@ -9,7 +9,7 @@ they are ~11 MB each and reproducible from the inputs.
 
 | File | What it records |
 | --- | --- |
-| `success-PKETF.json` | `add-reaction` and `check` for the worked example, all six checks passing |
+| `success-PKETF.json` | `add-reaction` and `check` for the worked example, all ten package checks passing |
 | `insufficient-information-PGI2.json` | `resolve` returning three compartment candidates each for two metabolites, `resolved_id: null` |
 | `duplicate-identifier-ACKr.json` | `inspect --reaction=ACKr` showing the identifier is already in the model |
 | `unbalanced-PKETX.json` | The same reaction as written (fails, `{'H': -2.0, 'O': -1.0}`) and corrected (passes) |

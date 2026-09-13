@@ -8,7 +8,7 @@ nothing else.
 from __future__ import annotations
 
 import ast
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from cobra.core.gene import GPR
@@ -32,6 +32,7 @@ class CheckResult:
     passed: list[str] = field(default_factory=list)
     failed: list[str] = field(default_factory=list)
     unverifiable: list[str] = field(default_factory=list)
+    semantic_diff: dict[str, Any] = field(default_factory=dict, repr=False)
 
     def record(self, name: str, *, ok: bool | None, detail: str = "") -> None:
         """File one check under passed, failed, or unverifiable (ok=None)."""
@@ -85,7 +86,13 @@ class CheckResult:
 
     def as_dict(self) -> dict[str, Any]:
         """Structured form for JSON output."""
-        return {**asdict(self), "status": self.status, "scope": self.scope}
+        return {
+            "passed": list(self.passed),
+            "failed": list(self.failed),
+            "unverifiable": list(self.unverifiable),
+            "status": self.status,
+            "scope": self.scope,
+        }
 
 
 # ==== gene rule comparison ====
@@ -215,7 +222,8 @@ def _check_add(
     request: ReactionRequest,
 ) -> CheckResult:
     """Verify the candidate adds exactly the requested reaction and nothing else."""
-    result = CheckResult()
+    diff = diff_snapshots(semantic_snapshot(base), semantic_snapshot(candidate))
+    result = CheckResult(semantic_diff=diff)
 
     # The operation is "add", so absence from the baseline is part of the contract.
     # Without it a candidate that is a byte-copy of a baseline already containing the
@@ -279,7 +287,6 @@ def _check_add(
         detail=f"{feasibility.status}, objective={feasibility.objective_value}",
     )
 
-    diff = diff_snapshots(semantic_snapshot(base), semantic_snapshot(candidate))
     unrelated = _unrelated_changes(diff, expected_added=request.reaction_id)
     added = diff.get("reactions", {}).get("added", [])
     # Stated as one positive invariant rather than two negatives. Given the
@@ -309,7 +316,8 @@ def _check_delete(
     -- the reaction itself is gone -- but feasibility and the unrelated-change
     detector apply exactly as they do for an addition.
     """
-    result = CheckResult()
+    diff = diff_snapshots(semantic_snapshot(base), semantic_snapshot(candidate))
+    result = CheckResult(semantic_diff=diff)
 
     if request.reaction_id not in base.reactions:
         result.record(
@@ -340,7 +348,6 @@ def _check_delete(
         detail=f"{feasibility.status}, objective={feasibility.objective_value}",
     )
 
-    diff = diff_snapshots(semantic_snapshot(base), semantic_snapshot(candidate))
     unrelated = _unrelated_changes(diff, expected_removed=request.reaction_id)
     removed = diff.get("reactions", {}).get("removed", [])
     result.record(

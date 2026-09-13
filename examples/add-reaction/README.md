@@ -40,6 +40,7 @@ Writes `candidate.xml`, `semantic_diff.json`, and `local_checks.json` to
 overwriting an existing file, and the candidate is read back to confirm the change
 survives SBML.
 
-All eight checks pass: reaction present, stoichiometry, bounds, gene rule, elemental
-and charge conservation, no unrelated semantic changes, SBML roundtrip, input
-unchanged.
+All ten checks pass: reaction absent from the baseline and present in the
+candidate, stoichiometry, bounds, gene rule, name, subsystem, elemental and charge
+conservation, FBA feasibility, and no unrelated semantic changes. Candidate
+construction separately verifies the source digest and SBML roundtrip.

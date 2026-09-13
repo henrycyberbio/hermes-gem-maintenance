@@ -131,6 +131,23 @@ def verify_output_paths(destinations: tuple[Path, ...], *, protected: Path) -> N
         _guard_destination(destination, protected)
 
 
+def write_check_artifacts(
+    directory: Path,
+    semantic_diff: dict[str, object],
+    local_checks: dict[str, object],
+    *,
+    protected: Path,
+) -> None:
+    """Write the two artifacts produced by one completed local check."""
+    artifacts = (
+        directory / "semantic_diff.json",
+        directory / "local_checks.json",
+    )
+    verify_output_paths(artifacts, protected=protected)
+    write_json_artifact(artifacts[0], semantic_diff, protected=protected)
+    write_json_artifact(artifacts[1], local_checks, protected=protected)
+
+
 @contextmanager
 def staged_write(destination: Path, *, protected: Path) -> Iterator[Path]:
     """Yield a private temporary path that becomes `destination` on a clean exit.
@@ -183,14 +200,14 @@ def _publish(staged: Path, destination: Path) -> None:
     try:
         os.link(staged, destination)
     except FileExistsError as exc:
-        msg = "candidate path already exists"
+        msg = "output path already exists"
         raise ModelIntegrityError(msg, path=destination.name) from exc
     except OSError:
         try:
             with destination.open("xb") as target:
                 target.write(staged.read_bytes())
         except FileExistsError as exc:
-            msg = "candidate path already exists"
+            msg = "output path already exists"
             raise ModelIntegrityError(msg, path=destination.name) from exc
         except BaseException:
             destination.unlink(missing_ok=True)
@@ -204,6 +221,6 @@ def _guard_destination(destination: Path, protected: Path) -> Path:
         msg = "refusing to write over the baseline model"
         raise ModelIntegrityError(msg, path=destination.name)
     if destination.exists():
-        msg = "candidate path already exists"
+        msg = "output path already exists"
         raise ModelIntegrityError(msg, path=destination.name)
     return destination

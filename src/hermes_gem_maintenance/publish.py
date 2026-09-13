@@ -212,10 +212,10 @@ def publish_deliverable(
             semantic_snapshot(load_model(candidate)), semantic_snapshot(published)
         )
         if drift:
+            staged_result.record(
+                "staged deliverable matches candidate", ok=False, detail=str(drift)
+            )
             if record_directory is not None:
-                staged_result.record(
-                    "staged deliverable matches candidate", ok=False, detail=str(drift)
-                )
                 _write_validation_summary(
                     record_directory,
                     reaction_id=request.reaction_id,
@@ -243,6 +243,8 @@ def publish_deliverable(
                 protected=baseline,
             )
         regression = review.regression
+        if not regression.ok:
+            staged_result.record("consistency regression", ok=False)
         _write_validation_summary(
             record_directory,
             reaction_id=request.reaction_id,
@@ -252,6 +254,8 @@ def publish_deliverable(
             protected=baseline,
         )
         if not regression.ok:
+            failure = staged_result.as_dict()
+            failure["scope"] = "export"
             msg = (
                 "staged deliverable introduces a consistency regression MEMOTE did "
                 "not report on the baseline; nothing published"
@@ -259,7 +263,7 @@ def publish_deliverable(
             raise ValidationFailedError(
                 msg,
                 consistency_regression=regression.as_dict(),
-                **staged_result.as_dict(),
+                **failure,
             )
 
     return ExportResult(
@@ -292,9 +296,6 @@ def _write_validation_summary(
     if regression is not None:
         payload["scope"] = "export"
         payload["consistency_regression"] = regression.as_dict()
-        if not regression.ok:
-            payload["status"] = "failed"
-            payload["failed"] = [*payload["failed"], "consistency regression"]
     write_json_artifact(
         directory / "validation_summary.json", payload, protected=protected
     )

@@ -13,6 +13,7 @@ import cobra
 import pytest
 from cobra.io import write_sbml_model
 
+from hermes_gem_maintenance import cli as cli_module
 from hermes_gem_maintenance import publish as publish_module
 from hermes_gem_maintenance.changes import ReactionRequest
 from hermes_gem_maintenance.cli import Cli
@@ -432,7 +433,10 @@ def test_check_passes_a_candidate_produced_by_add_reaction(
 
 
 def test_check_records_semantic_diff_and_local_checks_without_changing_stdout(
-    baseline: Path, request_file: Path, tmp_path: Path
+    baseline: Path,
+    request_file: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # GIVEN a candidate that passes the existing check and a recording directory.
     candidate = tmp_path / "candidate.xml"
@@ -441,6 +445,12 @@ def test_check_records_semantic_diff_and_local_checks_without_changing_stdout(
     )
     record_directory = tmp_path / "record"
     record_directory.mkdir()
+    monkeypatch.setattr(
+        cli_module,
+        "diff_snapshots",
+        lambda before, after: pytest.fail("CLI recomputed the semantic diff"),
+        raising=False,
+    )
     # WHEN checking once with recording and once without it.
     recorded = json.loads(
         Cli().check(
@@ -512,7 +522,7 @@ def test_check_refuses_to_overwrite_an_existing_record_artifact(
     existing = record_directory / "semantic_diff.json"
     existing.write_text("prior evidence", encoding="utf-8")
     # WHEN check tries to record its artifacts.
-    with pytest.raises(ModelIntegrityError, match="already exists"):
+    with pytest.raises(ModelIntegrityError, match="output path already exists"):
         Cli().check(
             model=str(baseline),
             candidate=str(candidate),
@@ -1047,7 +1057,7 @@ def test_export_retains_memote_snapshots_when_regression_fails_without_rerunning
     record_directory.mkdir()
     delivered = record_directory / "result.xml"
     # WHEN exporting the candidate.
-    with pytest.raises(ValidationFailedError, match="consistency regression"):
+    with pytest.raises(ValidationFailedError, match="consistency regression") as caught:
         Cli().export(
             model=str(baseline),
             candidate=str(candidate),
@@ -1070,6 +1080,9 @@ def test_export_retains_memote_snapshots_when_regression_fails_without_rerunning
     assert summary["status"] == "failed"
     assert summary["scope"] == "export"
     assert summary["failed"] == ["consistency regression"]
+    error = caught.value.as_dict()
+    for field in ("status", "scope", "failed", "consistency_regression"):
+        assert error[field] == summary[field]
     assert not delivered.exists()
 
 
@@ -1222,4 +1235,54 @@ def test_export_refuses_to_deliver_a_candidate_with_a_consistency_regression(
     assert "FAKE_BLOCKED" in caught.value.as_dict()["consistency_regression"][
         "new_blocked_reactions"
     ]
+    assert caught.value.as_dict()["status"] == "failed"
+    assert caught.value.as_dict()["scope"] == "export"
+    assert any(
+        item.startswith("consistency regression")
+        for item in caught.value.as_dict()["failed"]
+    )
     assert not list(tmp_path.glob(".*.partial"))
+
+
+def test_export_drift_failure_is_independent_of_artifact_recording(
+    baseline: Path,
+    request_file: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # GIVEN a candidate whose staged serialization is reported as semantic drift.
+    candidate = tmp_path / "candidate.xml"
+    Cli().add_reaction(
+        model=str(baseline), changeset=str(request_file), output=str(candidate)
+    )
+    monkeypatch.setattr(
+        publish_module,
+        "diff_snapshots",
+        lambda before, after: {"reactions": {"changed": ["NEWRXN"]}},
+    )
+    errors: dict[str, dict[str, object]] = {}
+    # WHEN exporting once with recording and once without it.
+    for label, record_directory in (
+        ("plain", ""),
+        ("recorded", str(tmp_path / "record")),
+    ):
+        with pytest.raises(ValidationFailedError, match="differs") as caught:
+            Cli().export(
+                model=str(baseline),
+                candidate=str(candidate),
+                changeset=str(request_file),
+                output=str(tmp_path / f"{label}.xml"),
+                record_directory=record_directory,
+            )
+        errors[label] = caught.value.as_dict()
+    # THEN persistence changes no verdict field or error context.
+    assert errors["plain"] == errors["recorded"]
+    assert errors["plain"]["status"] == "failed"
+    assert errors["plain"]["scope"] == "structural"
+    summary = json.loads(
+        (tmp_path / "record" / "validation_summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    for field in ("status", "scope", "failed"):
+        assert summary[field] == errors["recorded"][field]
