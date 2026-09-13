@@ -40,6 +40,17 @@ class ConsistencySnapshot:
     dead_end_metabolites: frozenset[str]
     orphan_metabolites: frozenset[str]
 
+    def as_dict(self) -> dict[str, Any]:
+        """Return JSON-compatible values for the completed snapshot."""
+        return {
+            "stoichiometrically_consistent": self.stoichiometrically_consistent,
+            "mass_unbalanced": sorted(self.mass_unbalanced),
+            "charge_unbalanced": sorted(self.charge_unbalanced),
+            "blocked_reactions": sorted(self.blocked_reactions),
+            "dead_end_metabolites": sorted(self.dead_end_metabolites),
+            "orphan_metabolites": sorted(self.orphan_metabolites),
+        }
+
 
 def consistency_snapshot(model: cobra.Model) -> ConsistencySnapshot:
     """Compute the five categories against one model.
@@ -137,6 +148,15 @@ class ConsistencyRegression:
         }
 
 
+@dataclass(frozen=True)
+class ConsistencyReview:
+    """The two completed snapshots and their regression."""
+
+    before: ConsistencySnapshot
+    after: ConsistencySnapshot
+    regression: ConsistencyRegression
+
+
 def compare_consistency(
     before: ConsistencySnapshot, after: ConsistencySnapshot
 ) -> ConsistencyRegression:
@@ -162,3 +182,12 @@ def compare_consistency(
             sorted(after.orphan_metabolites - before.orphan_metabolites)
         ),
     )
+
+
+def review_consistency(
+    before_model: cobra.Model, after_model: cobra.Model
+) -> ConsistencyReview:
+    """Compute both snapshots once and derive their regression."""
+    before = consistency_snapshot(before_model)
+    after = consistency_snapshot(after_model)
+    return ConsistencyReview(before, after, compare_consistency(before, after))

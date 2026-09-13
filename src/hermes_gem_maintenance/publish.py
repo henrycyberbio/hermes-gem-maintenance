@@ -16,13 +16,14 @@ from cobra.io import write_sbml_model
 
 from hermes_gem_maintenance.changes import apply_changeset
 from hermes_gem_maintenance.checks import (
+    CheckResult,
     check_candidate,
     diff_snapshots,
     semantic_snapshot,
 )
 from hermes_gem_maintenance.consistency_review import (
-    compare_consistency,
-    consistency_snapshot,
+    ConsistencyRegression,
+    review_consistency,
 )
 from hermes_gem_maintenance.errors import ValidationFailedError
 from hermes_gem_maintenance.model_io import (
@@ -30,7 +31,9 @@ from hermes_gem_maintenance.model_io import (
     load_model,
     staged_write,
     verify_digest,
+    verify_output_paths,
     verify_source,
+    write_json_artifact,
 )
 
 if TYPE_CHECKING:
@@ -152,6 +155,7 @@ def publish_deliverable(
     *,
     manifest: Path | None = None,
     expected_sha256: str = "",
+    record_directory: Path | None = None,
 ) -> ExportResult:
     """Re-check a candidate and publish it only if the published bytes are sound.
 
@@ -161,10 +165,28 @@ def publish_deliverable(
     evidence of being a valid model. Everything after the write is therefore verified
     against the artifact that will actually be released.
     """
+    if record_directory is not None:
+        verify_output_paths(
+            (
+                record_directory / "memote_before.json",
+                record_directory / "memote_after.json",
+                record_directory / "validation_summary.json",
+            ),
+            protected=baseline,
+        )
     before = verify_source(baseline, manifest=manifest, expected=expected_sha256)
+    baseline_verified_against = provenance_label(manifest, expected_sha256)
     base_model = load_model(baseline)
     result = check_candidate(base_model, load_model(candidate), request)
-    _refuse_unless_passed(result, "candidate")
+    if not result.ok:
+        _write_validation_summary(
+            record_directory,
+            reaction_id=request.reaction_id,
+            baseline_verified_against=baseline_verified_against,
+            result=result,
+            protected=baseline,
+        )
+        _refuse_unless_passed(result, "candidate")
 
     with staged_write(destination, protected=baseline) as staged:
         write_sbml_model(load_model(candidate), str(staged))
@@ -174,30 +196,60 @@ def publish_deliverable(
         # verdict. load_model reports an unreadable file as `model_integrity`.
         published = load_model(staged)
         staged_result = check_candidate(base_model, published, request)
-        _refuse_unless_passed(staged_result, "staged deliverable")
+        if not staged_result.ok:
+            _write_validation_summary(
+                record_directory,
+                reaction_id=request.reaction_id,
+                baseline_verified_against=baseline_verified_against,
+                result=staged_result,
+                protected=baseline,
+            )
+            _refuse_unless_passed(staged_result, "staged deliverable")
 
-        # Both comparisons run against the staged bytes, and they overlap: if the
-        # published file is byte-identical in meaning to the candidate, drift is empty
-        # and the candidate was already checked above, so this call cannot fail alone.
-        # A mutation deleting it therefore survives the suite. It stays because the
-        # payload the caller receives must describe the artifact that was actually
-        # released -- reporting the pre-staging result would attribute checks to a
-        # file that was never examined.
+        # Compare the semantic content of the candidate and staged deliverable so the
+        # checks and artifacts describe the bytes that are about to be published.
         drift = diff_snapshots(
             semantic_snapshot(load_model(candidate)), semantic_snapshot(published)
         )
         if drift:
+            if record_directory is not None:
+                staged_result.record(
+                    "staged deliverable matches candidate", ok=False, detail=str(drift)
+                )
+                _write_validation_summary(
+                    record_directory,
+                    reaction_id=request.reaction_id,
+                    baseline_verified_against=baseline_verified_against,
+                    result=staged_result,
+                    protected=baseline,
+                )
             msg = "staged deliverable differs from the candidate; nothing published"
             raise ValidationFailedError(msg, drift=drift, **staged_result.as_dict())
 
         verify_digest(baseline, before)
         digest = file_digest(staged)
 
-        # Runs against the staged bytes, matching every other check in this function:
-        # the guarantee this gate gives is about the artifact that is about to be
-        # released, not about the candidate before it went through the writer.
-        regression = compare_consistency(
-            consistency_snapshot(base_model), consistency_snapshot(published)
+        # Review the staged bytes, not the candidate before serialization.
+        review = review_consistency(base_model, published)
+        if record_directory is not None:
+            write_json_artifact(
+                record_directory / "memote_before.json",
+                review.before.as_dict(),
+                protected=baseline,
+            )
+            write_json_artifact(
+                record_directory / "memote_after.json",
+                review.after.as_dict(),
+                protected=baseline,
+            )
+        regression = review.regression
+        _write_validation_summary(
+            record_directory,
+            reaction_id=request.reaction_id,
+            baseline_verified_against=baseline_verified_against,
+            result=staged_result,
+            regression=regression,
+            protected=baseline,
         )
         if not regression.ok:
             msg = (
@@ -214,13 +266,41 @@ def publish_deliverable(
         reaction_id=request.reaction_id,
         delivered=destination,
         delivered_sha256=digest,
-        baseline_verified_against=provenance_label(manifest, expected_sha256),
+        baseline_verified_against=baseline_verified_against,
         checks=staged_result.as_dict(),
         consistency_regression=regression.as_dict(),
     )
 
 
-def _refuse_unless_passed(result: Any, subject: str) -> None:  # noqa: ANN401
+def _write_validation_summary(
+    directory: Path | None,
+    *,
+    reaction_id: str,
+    baseline_verified_against: str,
+    result: CheckResult,
+    protected: Path,
+    regression: ConsistencyRegression | None = None,
+) -> None:
+    """Write the export verdict when recording was requested."""
+    if directory is None:
+        return
+    payload = {
+        "reaction_id": reaction_id,
+        "baseline_verified_against": baseline_verified_against,
+        **result.as_dict(),
+    }
+    if regression is not None:
+        payload["scope"] = "export"
+        payload["consistency_regression"] = regression.as_dict()
+        if not regression.ok:
+            payload["status"] = "failed"
+            payload["failed"] = [*payload["failed"], "consistency regression"]
+    write_json_artifact(
+        directory / "validation_summary.json", payload, protected=protected
+    )
+
+
+def _refuse_unless_passed(result: CheckResult, subject: str) -> None:
     """Raise unless every check ran and passed, naming which artifact failed."""
     if result.ok:
         return

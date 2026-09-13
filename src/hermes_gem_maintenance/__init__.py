@@ -23,9 +23,11 @@ from hermes_gem_maintenance.checks import (
 )
 from hermes_gem_maintenance.consistency_review import (
     ConsistencyRegression,
+    ConsistencyReview,
     ConsistencySnapshot,
     compare_consistency,
     consistency_snapshot,
+    review_consistency,
 )
 from hermes_gem_maintenance.errors import (
     DependencyMissingError,
@@ -64,6 +66,7 @@ __all__ = [
     "CandidateResult",
     "CheckResult",
     "ConsistencyRegression",
+    "ConsistencyReview",
     "ConsistencySnapshot",
     "DeleteReactionRequest",
     "DependencyMissingError",
@@ -94,6 +97,7 @@ __all__ = [
     "publish_deliverable",
     "require_unique_metabolite",
     "resolve_metabolite",
+    "review_consistency",
     "save_candidate",
     "semantic_snapshot",
     "staged_write",

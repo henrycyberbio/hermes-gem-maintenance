@@ -201,7 +201,7 @@ baseline is re-verified, so a failed run leaves nothing at `--output`.
 ## check
 
 ```bash
-uv run hermes-gem-maintenance check --model=MODEL --candidate=CAND.xml --changeset=CHANGESET.json
+uv run hermes-gem-maintenance check --model=MODEL --candidate=CAND.xml --changeset=CHANGESET.json [--record_directory=RUN-DIR]
 ```
 
 ```json
@@ -254,10 +254,15 @@ That produces `status: "unverifiable"`, a third state alongside `passed` and
 `failed`, and `export` refuses to deliver it. Never present an unverifiable check as
 passed.
 
+With `--record_directory`, check also writes atomic, no-clobber
+`semantic_diff.json` and `local_checks.json`; without it, stdout/API is unchanged.
+If the local verdict is failed, both files still record the completed check and no
+export artifact is implied.
+
 ## export
 
 ```bash
-uv run hermes-gem-maintenance export --model=MODEL --candidate=CAND.xml --changeset=CHANGESET.json --output=OUT.xml
+uv run hermes-gem-maintenance export --model=MODEL --candidate=CAND.xml --changeset=CHANGESET.json --output=OUT.xml [--record_directory=RUN-DIR]
 ```
 
 Re-loads the candidate from disk, re-runs every check, **writes the deliverable to a
@@ -268,7 +273,7 @@ ship as a verified one. The checks reported in the payload describe the staged
 artifact that was actually released, not the in-memory object it came from: existing
 on disk and having a SHA-256 is not evidence of being a valid model. On success the
 payload carries `delivered`, `delivered_sha256`, and the full check result. On failure
-nothing is written and no partial file is left behind:
+the deliverable is not written and no partial file is left behind:
 
 ```json
 {
@@ -282,6 +287,12 @@ nothing is written and no partial file is left behind:
 
 The re-check exists because serialization can normalize content. Do not skip export
 on the grounds that `check` already passed.
+
+With `record_directory`, export persists both MEMOTE snapshots and
+`validation_summary.json`; snapshots remain on regression without rerunning MEMOTE.
+Normal export output omits full snapshots, and `result.xml` is published only after
+all validations pass. Each file uses the existing staged, no-clobber write path; the
+package does not write Hermes session files.
 
 ## Error categories
 
@@ -321,13 +332,15 @@ Worked examples:
 
 ## Python API
 
-The same operations, for tests and reuse. The CLI adds no logic of its own: it parses
-arguments, calls these functions, and serializes the result.
+The same model operations are available for tests and reuse. The CLI parses paths,
+requests optional artifact recording, calls these functions, and serializes the
+result.
 
 ```python
 from hermes_gem_maintenance import (
     ReactionRequest, DeleteReactionRequest, add_reaction, delete_reaction,
     parse_changeset, apply_changeset, check_candidate,
+    ConsistencyReview, review_consistency,
     build_candidate, publish_deliverable,
     load_model, file_digest, verify_digest, verify_source,
     resolve_metabolite, require_unique_metabolite,
@@ -339,6 +352,11 @@ from hermes_gem_maintenance import (
 `save_candidate` yourself: the source verification, staged write, re-check of the
 published bytes and no-clobber publication live inside them, so hand-rolling the
 sequence produces a weaker artifact that looks the same.
+
+`publish_deliverable(..., record_directory=RUN_DIR)` persists the two completed
+MEMOTE snapshots and `validation_summary.json` while retaining the ordinary return
+payload. `ConsistencyReview` is the concrete before/after/regression result used by
+that path; a regression is still review data even when it blocks delivery.
 
 `parse_changeset` reads a changeset envelope (`{"operations": [...]}`) into the
 single `ReactionRequest` or `DeleteReactionRequest` it carries; `apply_changeset`

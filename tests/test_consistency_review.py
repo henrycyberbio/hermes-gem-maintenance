@@ -17,9 +17,17 @@ from typing import Any
 import cobra
 import pytest
 
+from hermes_gem_maintenance import (
+    ConsistencyReview as PublicConsistencyReview,
+)
+from hermes_gem_maintenance import (
+    review_consistency as public_review_consistency,
+)
 from hermes_gem_maintenance.consistency_review import (
+    ConsistencyReview,
     compare_consistency,
     consistency_snapshot,
+    review_consistency,
 )
 from hermes_gem_maintenance.errors import DependencyMissingError
 
@@ -78,6 +86,24 @@ def test_consistency_snapshot_reports_a_clean_model_as_clean(
     assert not snapshot.charge_unbalanced
     assert not snapshot.dead_end_metabolites
     assert not snapshot.orphan_metabolites
+
+
+def test_consistency_snapshot_serializes_all_categories(
+    balanced_model: cobra.Model,
+) -> None:
+    # GIVEN a completed snapshot for a clean model.
+    snapshot = consistency_snapshot(balanced_model)
+    # WHEN converting it to the durable JSON representation.
+    payload = snapshot.as_dict()
+    # THEN every tracked category has a stable JSON-compatible shape.
+    assert payload == {
+        "stoichiometrically_consistent": True,
+        "mass_unbalanced": [],
+        "charge_unbalanced": [],
+        "blocked_reactions": [],
+        "dead_end_metabolites": [],
+        "orphan_metabolites": [],
+    }
 
 
 def test_consistency_snapshot_detects_a_mass_unbalanced_reaction(
@@ -158,6 +184,28 @@ def test_compare_consistency_reports_no_regression_between_identical_snapshots(
     assert regression.ok
     assert regression.new_mass_unbalanced == ()
     assert not regression.stoichiometric_consistency_lost
+
+
+def test_review_consistency_returns_both_snapshots_and_the_regression(
+    balanced_model: cobra.Model,
+) -> None:
+    # GIVEN a baseline and unchanged candidate model.
+    # WHEN reviewing consistency as one operation.
+    review = review_consistency(balanced_model, balanced_model)
+    # THEN both completed snapshots and their derived regression are retained.
+    assert isinstance(review, ConsistencyReview)
+    assert review.before == review.after
+    assert review.regression.ok
+
+
+def test_consistency_review_is_available_from_the_package_api(
+    balanced_model: cobra.Model,
+) -> None:
+    # GIVEN a caller using the package's documented top-level API.
+    # WHEN requesting a consistency review.
+    review = public_review_consistency(balanced_model, balanced_model)
+    # THEN the concrete review type is available without reaching into a submodule.
+    assert isinstance(review, PublicConsistencyReview)
 
 
 def test_compare_consistency_flags_a_newly_introduced_mass_imbalance(

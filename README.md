@@ -32,7 +32,7 @@ uv run python scripts/add_reaction_walkthrough.py run
 ```
 
 Adds reaction `PKETF` to the frozen `iEC1372_W3110` model and writes `candidate.xml`
-plus `checks.json` to `runs/PKETF/`. Eight checks run: reaction present,
+plus the check artifacts to `runs/PKETF/`. Eight checks run: reaction present,
 stoichiometry, bounds, gene rule, elemental and charge conservation, no unrelated
 semantic changes, SBML roundtrip, input unchanged.
 
@@ -45,8 +45,8 @@ uv run hermes-gem-maintenance inspect  --model=MODEL [--reaction=ID | --metaboli
 uv run hermes-gem-maintenance resolve  --model=MODEL --query=NAME [--compartment=C]
 uv run hermes-gem-maintenance add_reaction --model=MODEL --changeset=CHANGESET.json --output=CAND.xml [--source_manifest=SRC.json]
 uv run hermes-gem-maintenance delete_reaction --model=MODEL --changeset=CHANGESET.json --output=CAND.xml [--source_manifest=SRC.json]
-uv run hermes-gem-maintenance check    --model=MODEL --candidate=CAND.xml --changeset=CHANGESET.json
-uv run hermes-gem-maintenance export   --model=MODEL --candidate=CAND.xml --changeset=CHANGESET.json --output=OUT.xml [--source_manifest=SRC.json]
+uv run hermes-gem-maintenance check    --model=MODEL --candidate=CAND.xml --changeset=CHANGESET.json [--record_directory=RUN-DIR]
+uv run hermes-gem-maintenance export   --model=MODEL --candidate=CAND.xml --changeset=CHANGESET.json --output=OUT.xml [--record_directory=RUN-DIR] [--source_manifest=SRC.json]
 ```
 
 Every operation -- addition or deletion -- is described the same way: a changeset
@@ -76,6 +76,13 @@ memote`) and typically takes one to several minutes on a genome-scale model,
 dominated by flux variability analysis for blocked reactions. `--source_manifest`
 asserts which model the caller expected; the result's `baseline_verified_against`
 names the guarantee actually obtained.
+
+`record_directory` is optional and preserves stdout/API behavior. `check` records
+`semantic_diff.json` and `local_checks.json`; `export` records the two MEMOTE
+snapshots and `validation_summary.json`, publishing `result.xml` only after all
+validation passes. Each package artifact is written independently with staged,
+no-clobber semantics. Hermes owns request, trajectory, summary, and run-status files;
+an absent `run_status.json` means the session record is incomplete.
 
 A deletion that structurally passes `check` can still be refused by `export`: on
 this project's frozen model, deleting `ACKr` leaves the model solvable with an

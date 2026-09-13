@@ -24,6 +24,7 @@ from hermes_gem_maintenance import (
     verify_digest,
 )
 from hermes_gem_maintenance.errors import GemMaintenanceError, ModelIntegrityError
+from hermes_gem_maintenance.model_io import write_json_artifact
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE = REPO_ROOT / "examples" / "add-reaction"
@@ -92,8 +93,16 @@ class Walkthrough:
             "candidate_sha256": file_digest(candidate_path),
             **result.as_dict(),
         }
-        checks_path = destination / "checks.json"
-        checks_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+        write_json_artifact(
+            destination / "semantic_diff.json",
+            diff_snapshots(semantic_snapshot(base), semantic_snapshot(reloaded)),
+            protected=BASE_MODEL,
+        )
+        write_json_artifact(
+            destination / "local_checks.json",
+            report,
+            protected=BASE_MODEL,
+        )
 
         lines = [f"status: {report['status']}", f"artifacts: {destination}"]
         lines += [f"  pass  {item}" for item in result.passed]

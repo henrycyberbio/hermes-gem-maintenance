@@ -16,7 +16,12 @@ from cobra.io import write_sbml_model
 from hermes_gem_maintenance import publish as publish_module
 from hermes_gem_maintenance.changes import ReactionRequest
 from hermes_gem_maintenance.cli import Cli
-from hermes_gem_maintenance.consistency_review import ConsistencyRegression
+from hermes_gem_maintenance.consistency_review import (
+    ConsistencyRegression,
+    ConsistencyReview,
+    ConsistencySnapshot,
+    review_consistency,
+)
 from hermes_gem_maintenance.errors import (
     InsufficientInformationError,
     ModelIntegrityError,
@@ -426,6 +431,123 @@ def test_check_passes_a_candidate_produced_by_add_reaction(
     assert payload["scope"] == "structural"
 
 
+def test_check_records_semantic_diff_and_local_checks_without_changing_stdout(
+    baseline: Path, request_file: Path, tmp_path: Path
+) -> None:
+    # GIVEN a candidate that passes the existing check and a recording directory.
+    candidate = tmp_path / "candidate.xml"
+    Cli().add_reaction(
+        model=str(baseline), changeset=str(request_file), output=str(candidate)
+    )
+    record_directory = tmp_path / "record"
+    record_directory.mkdir()
+    # WHEN checking once with recording and once without it.
+    recorded = json.loads(
+        Cli().check(
+            model=str(baseline),
+            candidate=str(candidate),
+            changeset=str(request_file),
+            record_directory=str(record_directory),
+        )
+    )
+    plain = json.loads(
+        Cli().check(
+            model=str(baseline), candidate=str(candidate), changeset=str(request_file)
+        )
+    )
+    # THEN the public payload is unchanged and both artifacts contain complete data.
+    assert recorded == plain
+    semantic_diff = json.loads(
+        (record_directory / "semantic_diff.json").read_text(encoding="utf-8")
+    )
+    assert semantic_diff["reactions"]["added"] == ["NEWRXN"]
+    assert json.loads(
+        (record_directory / "local_checks.json").read_text(encoding="utf-8")
+    ) == recorded
+
+
+def test_check_records_a_failed_local_verdict(
+    baseline: Path, request_file: Path, tmp_path: Path
+) -> None:
+    # GIVEN a candidate whose requested stoichiometry no longer matches its bytes.
+    candidate = tmp_path / "candidate.xml"
+    Cli().add_reaction(
+        model=str(baseline), changeset=str(request_file), output=str(candidate)
+    )
+    changed = json.loads(request_file.read_text(encoding="utf-8"))
+    changed["operations"][0]["metabolites"] = {"a_c": -2, "b_c": 1}
+    request_file.write_text(json.dumps(changed), encoding="utf-8")
+    record_directory = tmp_path / "record"
+    record_directory.mkdir()
+    # WHEN checking with recording enabled.
+    payload = json.loads(
+        Cli().check(
+            model=str(baseline),
+            candidate=str(candidate),
+            changeset=str(request_file),
+            record_directory=str(record_directory),
+        )
+    )
+    # THEN both completed check artifacts retain the failed verdict and its diff.
+    assert payload["status"] == "failed"
+    assert payload["failed"]
+    assert json.loads(
+        (record_directory / "local_checks.json").read_text(encoding="utf-8")
+    ) == payload
+    assert json.loads(
+        (record_directory / "semantic_diff.json").read_text(encoding="utf-8")
+    )["reactions"]["added"] == ["NEWRXN"]
+
+
+def test_check_refuses_to_overwrite_an_existing_record_artifact(
+    baseline: Path, request_file: Path, tmp_path: Path
+) -> None:
+    # GIVEN a valid candidate and an existing semantic diff artifact.
+    candidate = tmp_path / "candidate.xml"
+    Cli().add_reaction(
+        model=str(baseline), changeset=str(request_file), output=str(candidate)
+    )
+    record_directory = tmp_path / "record"
+    record_directory.mkdir()
+    existing = record_directory / "semantic_diff.json"
+    existing.write_text("prior evidence", encoding="utf-8")
+    # WHEN check tries to record its artifacts.
+    with pytest.raises(ModelIntegrityError, match="already exists"):
+        Cli().check(
+            model=str(baseline),
+            candidate=str(candidate),
+            changeset=str(request_file),
+            record_directory=str(record_directory),
+        )
+    # THEN the prior artifact remains byte-for-byte unchanged.
+    assert existing.read_text(encoding="utf-8") == "prior evidence"
+
+
+def test_check_preflights_all_record_paths_before_writing(
+    baseline: Path, request_file: Path, tmp_path: Path
+) -> None:
+    # GIVEN a valid candidate and only the second check artifact already present.
+    candidate = tmp_path / "candidate.xml"
+    Cli().add_reaction(
+        model=str(baseline), changeset=str(request_file), output=str(candidate)
+    )
+    record_directory = tmp_path / "record"
+    record_directory.mkdir()
+    existing = record_directory / "local_checks.json"
+    existing.write_text("prior evidence", encoding="utf-8")
+    # WHEN check tries to record the pair.
+    with pytest.raises(ModelIntegrityError, match="already exists"):
+        Cli().check(
+            model=str(baseline),
+            candidate=str(candidate),
+            changeset=str(request_file),
+            record_directory=str(record_directory),
+        )
+    # THEN it writes neither half of a mixed-run pair.
+    assert not (record_directory / "semantic_diff.json").exists()
+    assert existing.read_text(encoding="utf-8") == "prior evidence"
+
+
 def test_export_refuses_to_deliver_a_failing_candidate(
     baseline: Path, request_file: Path, tmp_path: Path
 ) -> None:
@@ -447,6 +569,43 @@ def test_export_refuses_to_deliver_a_failing_candidate(
             changeset=str(request_file),
             output=str(delivered),
         )
+    assert not delivered.exists()
+
+
+def test_export_records_a_local_failure_without_memote_or_result(
+    baseline: Path, request_file: Path, tmp_path: Path
+) -> None:
+    # GIVEN a candidate whose requested stoichiometry was changed after generation.
+    candidate = tmp_path / "candidate.xml"
+    Cli().add_reaction(
+        model=str(baseline), changeset=str(request_file), output=str(candidate)
+    )
+    changed = json.loads(request_file.read_text(encoding="utf-8"))
+    changed["operations"][0]["metabolites"] = {"a_c": -2, "b_c": 1}
+    request_file.write_text(json.dumps(changed), encoding="utf-8")
+    record_directory = tmp_path / "record"
+    record_directory.mkdir()
+    delivered = record_directory / "result.xml"
+    # WHEN export reaches its local validation failure.
+    with pytest.raises(ValidationFailedError, match="re-validation"):
+        Cli().export(
+            model=str(baseline),
+            candidate=str(candidate),
+            changeset=str(request_file),
+            output=str(delivered),
+            record_directory=str(record_directory),
+        )
+    # THEN the failure verdict is durable, while MEMOTE and result.xml are absent.
+    summary = json.loads(
+        (record_directory / "validation_summary.json").read_text(encoding="utf-8")
+    )
+    assert summary["status"] == "failed"
+    assert summary["scope"] == "structural"
+    assert summary["failed"]
+    assert summary["reaction_id"] == "NEWRXN"
+    assert "baseline_verified_against" in summary
+    assert not (record_directory / "memote_before.json").exists()
+    assert not (record_directory / "memote_after.json").exists()
     assert not delivered.exists()
 
 
@@ -838,17 +997,181 @@ def test_export_delivers_a_passing_candidate(
     assert payload["scope"] == "export"
 
 
+def test_export_retains_memote_snapshots_when_regression_fails_without_rerunning(
+    baseline: Path,
+    request_file: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # GIVEN a completed review with a newly blocked reaction and a call counter.
+    candidate = tmp_path / "candidate.xml"
+    Cli().add_reaction(
+        model=str(baseline), changeset=str(request_file), output=str(candidate)
+    )
+    before = ConsistencySnapshot(
+        stoichiometrically_consistent=True,
+        mass_unbalanced=frozenset(),
+        charge_unbalanced=frozenset(),
+        blocked_reactions=frozenset(),
+        dead_end_metabolites=frozenset(),
+        orphan_metabolites=frozenset(),
+    )
+    after = ConsistencySnapshot(
+        stoichiometrically_consistent=True,
+        mass_unbalanced=frozenset(),
+        charge_unbalanced=frozenset(),
+        blocked_reactions=frozenset({"FAKE_BLOCKED"}),
+        dead_end_metabolites=frozenset(),
+        orphan_metabolites=frozenset(),
+    )
+    regression = ConsistencyRegression(
+        stoichiometric_consistency_lost=False,
+        new_mass_unbalanced=(),
+        new_charge_unbalanced=(),
+        new_blocked_reactions=("FAKE_BLOCKED",),
+        new_dead_end_metabolites=(),
+        new_orphan_metabolites=(),
+    )
+    review = ConsistencyReview(before, after, regression)
+    calls = 0
+
+    def fake_review(
+        before_model: cobra.Model, after_model: cobra.Model
+    ) -> ConsistencyReview:
+        nonlocal calls
+        calls += 1
+        return review
+
+    monkeypatch.setattr(publish_module, "review_consistency", fake_review)
+    record_directory = tmp_path / "record"
+    record_directory.mkdir()
+    delivered = record_directory / "result.xml"
+    # WHEN exporting the candidate.
+    with pytest.raises(ValidationFailedError, match="consistency regression"):
+        Cli().export(
+            model=str(baseline),
+            candidate=str(candidate),
+            changeset=str(request_file),
+            output=str(delivered),
+            record_directory=str(record_directory),
+        )
+    # THEN one review supplies both durable snapshots and the failure summary.
+    assert calls == 1
+    assert json.loads(
+        (record_directory / "memote_before.json").read_text(encoding="utf-8")
+    ) == before.as_dict()
+    assert json.loads(
+        (record_directory / "memote_after.json").read_text(encoding="utf-8")
+    ) == after.as_dict()
+    summary = json.loads(
+        (record_directory / "validation_summary.json").read_text(encoding="utf-8")
+    )
+    assert summary["consistency_regression"] == regression.as_dict()
+    assert summary["status"] == "failed"
+    assert summary["scope"] == "export"
+    assert summary["failed"] == ["consistency regression"]
+    assert not delivered.exists()
+
+
+def test_export_records_snapshots_and_summary_without_expanding_the_payload(
+    baseline: Path, request_file: Path, tmp_path: Path
+) -> None:
+    # GIVEN a candidate that passes local and whole-model validation.
+    candidate = tmp_path / "candidate.xml"
+    Cli().add_reaction(
+        model=str(baseline), changeset=str(request_file), output=str(candidate)
+    )
+    record_directory = tmp_path / "record"
+    record_directory.mkdir()
+    delivered = record_directory / "result.xml"
+    # WHEN exporting with the optional package-owned recording destination.
+    payload = json.loads(
+        Cli().export(
+            model=str(baseline),
+            candidate=str(candidate),
+            changeset=str(request_file),
+            output=str(delivered),
+            record_directory=str(record_directory),
+        )
+    )
+    # THEN result.xml and all three export artifacts are complete.
+    assert delivered.exists()
+    before = json.loads(
+        (record_directory / "memote_before.json").read_text(encoding="utf-8")
+    )
+    after = json.loads(
+        (record_directory / "memote_after.json").read_text(encoding="utf-8")
+    )
+    summary = json.loads(
+        (record_directory / "validation_summary.json").read_text(encoding="utf-8")
+    )
+    assert before["stoichiometrically_consistent"] is True
+    assert after["stoichiometrically_consistent"] is True
+    assert summary["status"] == "passed"
+    assert summary["reaction_id"] == "NEWRXN"
+    assert "baseline_verified_against" in summary
+    assert summary["consistency_regression"] == payload["consistency_regression"]
+    # AND ordinary ExportResult JSON remains the compatibility payload.
+    assert "memote_before" not in payload
+    assert "memote_after" not in payload
+    # AND Hermes-owned session files remain the orchestrator's responsibility.
+    assert not (record_directory / "request.md").exists()
+    assert not (record_directory / "summary.md").exists()
+    assert not (record_directory / "run_status.json").exists()
+
+
+def test_export_preflights_all_record_paths_before_running_memote(
+    baseline: Path,
+    request_file: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # GIVEN a valid candidate and one pre-existing export artifact.
+    candidate = tmp_path / "candidate.xml"
+    Cli().add_reaction(
+        model=str(baseline), changeset=str(request_file), output=str(candidate)
+    )
+    record_directory = tmp_path / "record"
+    record_directory.mkdir()
+    existing = record_directory / "memote_after.json"
+    existing.write_text("prior evidence", encoding="utf-8")
+    calls = 0
+
+    def counted_review(
+        before_model: cobra.Model, after_model: cobra.Model
+    ) -> ConsistencyReview:
+        nonlocal calls
+        calls += 1
+        return review_consistency(before_model, after_model)
+
+    monkeypatch.setattr(publish_module, "review_consistency", counted_review)
+    # WHEN export is asked to write that artifact set.
+    with pytest.raises(ModelIntegrityError, match="already exists"):
+        Cli().export(
+            model=str(baseline),
+            candidate=str(candidate),
+            changeset=str(request_file),
+            output=str(record_directory / "result.xml"),
+            record_directory=str(record_directory),
+        )
+    # THEN no MEMOTE work runs and no new sibling artifact is published.
+    assert calls == 0
+    assert not (record_directory / "memote_before.json").exists()
+    assert not (record_directory / "validation_summary.json").exists()
+    assert existing.read_text(encoding="utf-8") == "prior evidence"
+
+
 def test_export_refuses_to_deliver_a_candidate_with_a_consistency_regression(
     baseline: Path, request_file: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # GIVEN a candidate that passes every other check, but a MEMOTE comparison that
+    # GIVEN a candidate that passes every other check, but a consistency review that
     # reports a regression. Reproducing a genuine MEMOTE-detectable regression
     # through add_reaction alone would need a model complex enough to expose real
     # network gaps; the gate's own logic (identifying an actual regression) is
     # already covered directly in test_consistency_review.py. What is not covered
     # anywhere else is whether publish_deliverable actually wires that verdict into
     # a refusal -- a claimed gate with no test exercising its "no" path is not a
-    # verified gate, so this monkeypatches only the comparison outcome, not MEMOTE.
+    # verified gate, so this supplies a completed review at the orchestration seam.
     candidate = tmp_path / "candidate.xml"
     Cli().add_reaction(
         model=str(baseline), changeset=str(request_file), output=str(candidate)
@@ -861,8 +1184,27 @@ def test_export_refuses_to_deliver_a_candidate_with_a_consistency_regression(
         new_dead_end_metabolites=(),
         new_orphan_metabolites=(),
     )
+    before = ConsistencySnapshot(
+        stoichiometrically_consistent=True,
+        mass_unbalanced=frozenset(),
+        charge_unbalanced=frozenset(),
+        blocked_reactions=frozenset(),
+        dead_end_metabolites=frozenset(),
+        orphan_metabolites=frozenset(),
+    )
+    after = ConsistencySnapshot(
+        stoichiometrically_consistent=True,
+        mass_unbalanced=frozenset(),
+        charge_unbalanced=frozenset(),
+        blocked_reactions=frozenset({"FAKE_BLOCKED"}),
+        dead_end_metabolites=frozenset(),
+        orphan_metabolites=frozenset(),
+    )
+    fake_review = ConsistencyReview(before, after, fake_regression)
     monkeypatch.setattr(
-        publish_module, "compare_consistency", lambda before, after: fake_regression
+        publish_module,
+        "review_consistency",
+        lambda before_model, after_model: fake_review,
     )
     delivered = tmp_path / "delivered.xml"
     # WHEN exporting it.

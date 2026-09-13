@@ -108,11 +108,27 @@ def save_candidate(model: cobra.Model, destination: Path, *, protected: Path) ->
     a symlink cannot slip past it. This protects the package's own writes only; it
     makes no claim about other tools with filesystem access.
     """
-    destination = _guard_destination(destination, protected)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    logger.info("writing candidate to %s", destination.name)
-    write_sbml_model(model, str(destination))
+    with staged_write(destination, protected=protected) as staged:
+        logger.info("writing candidate to %s", destination.name)
+        write_sbml_model(model, str(staged))
     return destination
+
+
+def write_json_artifact(
+    destination: Path, payload: dict[str, object], *, protected: Path
+) -> Path:
+    """Write one JSON artifact using staged, no-clobber publication."""
+    with staged_write(destination, protected=protected) as staged:
+        staged.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+    return destination
+
+
+def verify_output_paths(destinations: tuple[Path, ...], *, protected: Path) -> None:
+    """Refuse an artifact set before any member can mix with prior evidence."""
+    for destination in destinations:
+        _guard_destination(destination, protected)
 
 
 @contextmanager

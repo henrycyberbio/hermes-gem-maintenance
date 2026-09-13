@@ -15,7 +15,11 @@ from typing import Any
 import fire
 
 from hermes_gem_maintenance.changes import parse_changeset
-from hermes_gem_maintenance.checks import check_candidate
+from hermes_gem_maintenance.checks import (
+    check_candidate,
+    diff_snapshots,
+    semantic_snapshot,
+)
 from hermes_gem_maintenance.errors import (
     GemMaintenanceError,
     RequestViolationError,
@@ -27,7 +31,11 @@ from hermes_gem_maintenance.inspect import (
     summarize,
     unique_match,
 )
-from hermes_gem_maintenance.model_io import load_model
+from hermes_gem_maintenance.model_io import (
+    load_model,
+    verify_output_paths,
+    write_json_artifact,
+)
 from hermes_gem_maintenance.publish import build_candidate, publish_deliverable
 
 logger = logging.getLogger(__name__)
@@ -177,7 +185,9 @@ class Cli:
         )
         return _emit(result.as_dict())
 
-    def check(self, model: str, candidate: str, changeset: str) -> str:
+    def check(
+        self, model: str, candidate: str, changeset: str, record_directory: str = ""
+    ) -> str:
         """Verify a candidate matches the changeset and changed nothing else.
 
         Args:
@@ -187,12 +197,29 @@ class Cli:
                 operation's `type` (`add_reaction` or `delete_reaction`) selects
                 which invariant the candidate is checked against -- there is no
                 separate operation argument to keep in agreement with it.
+            record_directory: Optional directory for package-owned check artifacts.
         """
         request = parse_changeset(_read_json(Path(changeset)))
-        result = check_candidate(
-            load_model(Path(model)), load_model(Path(candidate)), request
-        )
-        return _emit({"reaction_id": request.reaction_id, **result.as_dict()})
+        base_model = load_model(Path(model))
+        candidate_model = load_model(Path(candidate))
+        result = check_candidate(base_model, candidate_model, request)
+        payload = {"reaction_id": request.reaction_id, **result.as_dict()}
+        if record_directory:
+            directory = Path(record_directory)
+            artifacts = (
+                directory / "semantic_diff.json",
+                directory / "local_checks.json",
+            )
+            verify_output_paths(artifacts, protected=Path(model))
+            write_json_artifact(
+                artifacts[0],
+                diff_snapshots(
+                    semantic_snapshot(base_model), semantic_snapshot(candidate_model)
+                ),
+                protected=Path(model),
+            )
+            write_json_artifact(artifacts[1], payload, protected=Path(model))
+        return _emit(payload)
 
     def export(
         self,
@@ -202,6 +229,7 @@ class Cli:
         output: str,
         source_manifest: str = "",
         expected_sha256: str = "",
+        record_directory: str = "",
     ) -> str:
         """Re-check a candidate and write the deliverable only if it passes.
 
@@ -227,6 +255,7 @@ class Cli:
             source_manifest: Path to the model's source manifest. When given, the
                 baseline must match the SHA-256 it records.
             expected_sha256: The approved digest, if there is no manifest.
+            record_directory: Optional directory for package-owned export artifacts.
         """
         request = parse_changeset(_read_json(Path(changeset)))
         result = publish_deliverable(
@@ -236,6 +265,7 @@ class Cli:
             Path(output),
             manifest=Path(source_manifest) if source_manifest else None,
             expected_sha256=expected_sha256,
+            record_directory=Path(record_directory) if record_directory else None,
         )
         return _emit(result.as_dict())
 

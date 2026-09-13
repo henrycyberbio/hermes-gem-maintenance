@@ -25,6 +25,16 @@ from hermes_gem_maintenance.errors import (
     ModelIntegrityError,
 )
 from hermes_gem_maintenance.inspect import WEAK_MATCH_CEILING
+from hermes_gem_maintenance.model_io import write_json_artifact
+
+
+def test_json_artifact_writer_is_not_part_of_the_package_api() -> None:
+    # GIVEN the package API, which exposes model operations rather than raw writers.
+    import hermes_gem_maintenance
+
+    # WHEN checking its public surface.
+    # THEN the audit helper remains internal to model_io.
+    assert not hasattr(hermes_gem_maintenance, "write_json_artifact")
 
 # ==== fixtures ====
 
@@ -375,7 +385,59 @@ def test_fallback_publication_leaves_nothing_when_the_copy_fails(
     assert not destination.exists()
 
 
+def test_json_artifact_interruption_leaves_no_final_or_partial_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # GIVEN a JSON artifact whose staged publication fails during the copy fallback.
+    protected = tmp_path / "base.xml"
+    protected.write_text("baseline", encoding="utf-8")
+    destination = tmp_path / "semantic_diff.json"
+
+    def no_hard_links(source: object, target: object) -> None:
+        msg = "no hard links here"
+        raise OSError(msg)
+
+    monkeypatch.setattr(io_module.os, "link", no_hard_links)
+    original_read_bytes = Path.read_bytes
+
+    def interrupted_read(path: Path) -> bytes:
+        if path.name.startswith(".semantic_diff.json."):
+            msg = "interrupted while publishing"
+            raise OSError(msg)
+        return original_read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", interrupted_read)
+    # WHEN writing the artifact.
+    with pytest.raises(OSError, match="interrupted while publishing"):
+        write_json_artifact(
+            destination, {"reactions": {"added": ["NEWRXN"]}}, protected=protected
+        )
+    # THEN no truncated final file or misleading private partial remains.
+    assert not destination.exists()
+    assert not list(tmp_path.glob(".semantic_diff.json.*.partial"))
+
+
 # ==== write guards ====
+
+
+def test_save_candidate_interruption_leaves_no_final_or_partial_file(
+    model: cobra.Model, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # GIVEN a model writer that leaves partial bytes before it is interrupted.
+    destination = tmp_path / "candidate.xml"
+
+    def interrupted_writer(_model: object, path: str) -> None:
+        Path(path).write_bytes(b"partial candidate")
+        msg = "interrupted while writing candidate"
+        raise OSError(msg)
+
+    monkeypatch.setattr(io_module, "write_sbml_model", interrupted_writer)
+    # WHEN writing the candidate.
+    with pytest.raises(OSError, match="interrupted while writing candidate"):
+        save_candidate(model, destination, protected=tmp_path / "baseline.xml")
+    # THEN no truncated candidate or private staging file remains.
+    assert not destination.exists()
+    assert not list(tmp_path.glob(".candidate.xml.*.partial"))
 
 
 def test_save_candidate_refuses_to_overwrite_the_baseline(

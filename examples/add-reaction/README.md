@@ -27,7 +27,7 @@ Full citations: [CITATIONS.md](../../CITATIONS.md).
 | --- | --- |
 | `model/iEC1372_W3110.xml` | Frozen SBML input, never modified |
 | `model/iEC1372_W3110.source.json` | Source, licence, retrieval record, byte count, SHA-256 |
-| `reaction.json` | Structured reaction definition with provenance |
+| `changeset.json` | Structured reaction definition with provenance |
 
 ## Run
 
@@ -35,8 +35,9 @@ Full citations: [CITATIONS.md](../../CITATIONS.md).
 uv run python scripts/add_reaction_walkthrough.py run
 ```
 
-Writes `candidate.xml` and `checks.json` to `runs/PKETF/`. The input is hashed before
-and after; the candidate is written separately and read back to confirm the change
+Writes `candidate.xml`, `semantic_diff.json`, and `local_checks.json` to
+`runs/PKETF/`. The input is hashed before and after; each artifact is staged without
+overwriting an existing file, and the candidate is read back to confirm the change
 survives SBML.
 
 All eight checks pass: reaction present, stoichiometry, bounds, gene rule, elemental

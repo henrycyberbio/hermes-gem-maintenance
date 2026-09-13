@@ -27,8 +27,8 @@ uv run hermes-gem-maintenance inspect  --model=MODEL [--reaction=ID | --metaboli
 uv run hermes-gem-maintenance resolve  --model=MODEL --query=NAME [--compartment=C]
 uv run hermes-gem-maintenance add_reaction --model=MODEL --changeset=CHANGESET.json --output=CAND.xml
 uv run hermes-gem-maintenance delete_reaction --model=MODEL --changeset=CHANGESET.json --output=CAND.xml
-uv run hermes-gem-maintenance check    --model=MODEL --candidate=CAND.xml --changeset=CHANGESET.json
-uv run hermes-gem-maintenance export   --model=MODEL --candidate=CAND.xml --changeset=CHANGESET.json --output=OUT.xml
+uv run hermes-gem-maintenance check    --model=MODEL --candidate=CAND.xml --changeset=CHANGESET.json [--record_directory=RUN-DIR]
+uv run hermes-gem-maintenance export   --model=MODEL --candidate=CAND.xml --changeset=CHANGESET.json --output=OUT.xml [--record_directory=RUN-DIR]
 ```
 
 Every command prints JSON and exits non-zero on a deliberate error. Errors carry a
@@ -88,11 +88,16 @@ its own changeset file per run rather than editing one file in place across
 attempts — a stale changeset from a previous run is how a delete request gets
 silently re-validated as an add.
 
-Then `add_reaction` or `delete_reaction` to a fresh output path, `check` the
-result, and `export` only once the checks pass. Write each run's request,
-changeset, candidate, checks, and delivered model to its own directory. When a run
-stops early, say where it stopped and why, and do not leave a deliverable behind
-that implies success.
+Then `add_reaction` or `delete_reaction` to a fresh output path, `check` the result,
+and `export` only once the checks pass. Hermes supplies a fresh run directory and
+owns request, trajectory, summary, and run-status files; the package records only
+candidate and model-validation artifacts. Pass the same directory to `check` and
+`export` when retaining the package artifacts; each file is written independently
+without overwriting an existing path. Write `run_status.json` last, after the actual
+tool calls and their results are in the trajectory and `summary.md` is complete. A
+directory without that final marker is interrupted or still running, not a completed
+audit record; restart from the baseline under a new run ID rather than adding a second
+attempt to it.
 
 Recovery is always to regenerate a candidate from the untouched baseline. Never
 repair a candidate in place — a candidate whose history you cannot reconstruct is not
