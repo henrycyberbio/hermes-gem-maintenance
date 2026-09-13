@@ -1,0 +1,22 @@
+{
+  "delete_reaction": {
+    "baseline_sha256": "109290d2e2407a94f8088f9ef9fd40f6db6b73b1cf36574d6d987527ece8d9b7",
+    "baseline_verified_against": "source manifest: iEC1372_W3110.source.json",
+    "candidate": "delete-ACKr.xml",
+    "candidate_sha256": "2bd959f026d4757e7fe51d76fad528cccfa2d042be23629638597d6ff8871e8a",
+    "reaction_id": "ACKr"
+  },
+  "check": {
+    "failed": [],
+    "passed": [
+      "reaction present in baseline: ACKr",
+      "reaction absent from candidate: ACKr",
+      "candidate is solvable under its own bounds and objective: optimal, objective=0.9823963461342964",
+      "no unrelated semantic changes: requested removal; not compared: annotation, notes, SBO terms, gene names"
+    ],
+    "reaction_id": "ACKr",
+    "scope": "structural",
+    "status": "passed",
+    "unverifiable": []
+  }
+}

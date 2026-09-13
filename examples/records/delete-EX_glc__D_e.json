@@ -1,0 +1,23 @@
+{
+  "delete_reaction": {
+    "baseline_sha256": "109290d2e2407a94f8088f9ef9fd40f6db6b73b1cf36574d6d987527ece8d9b7",
+    "baseline_verified_against": "source manifest: iEC1372_W3110.source.json",
+    "candidate": "delete-EX_glc__D_e.xml",
+    "candidate_sha256": "00fdfc3b77bdafb9241b862d34080e91cba7fefd409adfda5dff4ca52ad98ff2",
+    "reaction_id": "EX_glc__D_e"
+  },
+  "check": {
+    "failed": [
+      "candidate is solvable under its own bounds and objective: infeasible, objective=0.0"
+    ],
+    "passed": [
+      "reaction present in baseline: EX_glc__D_e",
+      "reaction absent from candidate: EX_glc__D_e",
+      "no unrelated semantic changes: requested removal; not compared: annotation, notes, SBO terms, gene names"
+    ],
+    "reaction_id": "EX_glc__D_e",
+    "scope": "structural",
+    "status": "failed",
+    "unverifiable": []
+  }
+}

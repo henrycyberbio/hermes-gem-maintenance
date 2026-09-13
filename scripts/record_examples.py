@@ -24,6 +24,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 MODEL = REPO_ROOT / "examples" / "add-reaction" / "model" / "iEC1372_W3110.xml"
 MANIFEST = MODEL.with_suffix(".source.json")
 CHANGESET = REPO_ROOT / "examples" / "add-reaction" / "changeset.json"
+DELETE_DIR = REPO_ROOT / "examples" / "delete-reaction"
 RECORDS = REPO_ROOT / "examples" / "records"
 
 PKETX_AS_WRITTEN: dict[str, Any] = {
@@ -89,6 +90,30 @@ def write() -> None:
             ),
         }
         _write("success-PKETF.json", success)
+
+        delete_cases = {
+            "ALAt2pp_copy2": DELETE_DIR / "changeset-ALAt2pp_copy2.json",
+            "ACKr": DELETE_DIR / "changeset-ACKr.json",
+            "EX_glc__D_e": DELETE_DIR / "changeset-EX_glc__D_e.json",
+        }
+        for reaction_id, changeset_path in delete_cases.items():
+            candidate_out = scratch / f"delete-{reaction_id}.xml"
+            record: dict[str, Any] = {
+                "delete_reaction": _cli(
+                    "delete_reaction",
+                    f"--model={MODEL}",
+                    f"--changeset={changeset_path}",
+                    f"--output={candidate_out}",
+                    f"--source_manifest={MANIFEST}",
+                ),
+                "check": _cli(
+                    "check",
+                    f"--model={MODEL}",
+                    f"--candidate={candidate_out}",
+                    f"--changeset={changeset_path}",
+                ),
+            }
+            _write(f"delete-{reaction_id}.json", record)
 
         ambiguous = {
             query: _cli("resolve", f"--model={MODEL}", f"--query={query}")

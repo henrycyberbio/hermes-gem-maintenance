@@ -1,0 +1,22 @@
+{
+  "delete_reaction": {
+    "baseline_sha256": "109290d2e2407a94f8088f9ef9fd40f6db6b73b1cf36574d6d987527ece8d9b7",
+    "baseline_verified_against": "source manifest: iEC1372_W3110.source.json",
+    "candidate": "delete-ALAt2pp_copy2.xml",
+    "candidate_sha256": "14febf5f142e876bab50a879a33b1122c02c6efc5707ca05ac5d798951fa7178",
+    "reaction_id": "ALAt2pp_copy2"
+  },
+  "check": {
+    "failed": [],
+    "passed": [
+      "reaction present in baseline: ALAt2pp_copy2",
+      "reaction absent from candidate: ALAt2pp_copy2",
+      "candidate is solvable under its own bounds and objective: optimal, objective=0.9823963461343095",
+      "no unrelated semantic changes: requested removal; not compared: annotation, notes, SBO terms, gene names"
+    ],
+    "reaction_id": "ALAt2pp_copy2",
+    "scope": "structural",
+    "status": "passed",
+    "unverifiable": []
+  }
+}

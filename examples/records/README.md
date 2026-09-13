@@ -1,8 +1,9 @@
 # Records
 
-Recorded CLI output for one successful request and the three scenarios in
-`../scenarios/`. They are committed so the repository documents what the tool
-actually returns, without requiring a reader to run a 10.8 MB model themselves.
+Recorded CLI output for one successful request, three delete-reaction cases, and the
+three scenarios in `../scenarios/`. They are committed so the repository documents
+what the tool actually returns, without requiring a reader to run a 10.8 MB model
+themselves.
 
 Only the JSON records are kept. Candidate and delivered models are not committed —
 they are ~11 MB each and reproducible from the inputs.
@@ -10,6 +11,9 @@ they are ~11 MB each and reproducible from the inputs.
 | File | What it records |
 | --- | --- |
 | `success-PKETF.json` | `add-reaction` and `check` for the worked example, all ten package checks passing |
+| `delete-ALAt2pp_copy2.json` | `delete_reaction` and `check` for the clean deletion case (`export` also passes; see `examples/delete-reaction/README.md`) |
+| `delete-ACKr.json` | `delete_reaction` and `check` for the case `export` refuses on a MEMOTE regression |
+| `delete-EX_glc__D_e.json` | `delete_reaction` and `check` for the case `check` itself refuses on infeasibility |
 | `insufficient-information-PGI2.json` | `resolve` returning three compartment candidates each for two metabolites, `resolved_id: null` |
 | `duplicate-identifier-ACKr.json` | `inspect --reaction=ACKr` showing the identifier is already in the model |
 | `unbalanced-PKETX.json` | The same reaction as written (fails, `{'H': -2.0, 'O': -1.0}`) and corrected (passes) |
