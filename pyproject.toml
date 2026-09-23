@@ -27,6 +27,8 @@ dev = [
     "citeproc-py>=0.11.1",
     "pytest>=8.0",
     "memote==0.17.0",
+    "ruff>=0.16.8",
+    "mypy>=2.3.1",
 ]
 
 
@@ -38,6 +40,14 @@ build-backend = "uv_build"
 # Import scripts/ as a package root so tests can exercise the walkthrough directly.
 pythonpath = ["."]
 testpaths = ["tests"]
+
+[tool.mypy]
+files = ["src", "scripts", "tests"]
+
+# Runtime dependencies that ship neither inline types nor a stubs package.
+[[tool.mypy.overrides]]
+module = ["cobra.*", "fire.*", "citeproc.*", "memote.*"]
+ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 88

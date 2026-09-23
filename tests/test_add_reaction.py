@@ -80,7 +80,9 @@ def test_request_rejects_a_definition_missing_required_fields() -> None:
     # THEN it reports what is missing, so the caller can ask a specific question.
     with pytest.raises(InsufficientInformationError) as caught:
         ReactionRequest.from_dict(partial)
-    assert set(caught.value.context["missing"]) == {"lower_bound", "upper_bound"}
+    missing = caught.value.context["missing"]
+    assert isinstance(missing, list)
+    assert set(missing) == {"lower_bound", "upper_bound"}
 
 
 def test_request_rejects_inverted_bounds(spec: dict[str, object]) -> None:

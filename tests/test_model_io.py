@@ -34,6 +34,7 @@ def test_json_artifact_writer_is_not_part_of_the_package_api() -> None:
     # THEN the audit helper remains internal to model_io.
     assert not hasattr(hermes_gem_maintenance, "write_json_artifact")
 
+
 # ==== fixtures ====
 
 
@@ -128,7 +129,9 @@ def test_require_unique_raises_with_the_candidates_listed(model: cobra.Model) ->
     # caller can ask a specific question instead of guessing.
     with pytest.raises(InsufficientInformationError) as caught:
         require_unique_metabolite(model, "D-Fructose 6-phosphate")
-    listed = {c["id"] for c in caught.value.context["candidates"]}
+    candidates = caught.value.context["candidates"]
+    assert isinstance(candidates, list)
+    listed = {c["id"] for c in candidates}
     assert listed == {"f6p_c", "f6p_p"}
 
 
@@ -148,7 +151,9 @@ def test_require_unique_refuses_a_name_shared_across_compartments(
     # picking a compartment for the requester is inventing biology.
     with pytest.raises(InsufficientInformationError) as caught:
         require_unique_metabolite(model, "D-Fructose 6-phosphate")
-    compartments = {c["compartment"] for c in caught.value.context["candidates"]}
+    candidates = caught.value.context["candidates"]
+    assert isinstance(candidates, list)
+    compartments = {c["compartment"] for c in candidates}
     assert compartments == {"c", "p"}
 
 
@@ -166,8 +171,11 @@ def test_resolve_reaches_a_metabolite_by_formula(model: cobra.Model) -> None:
     # GIVEN a metabolite whose name no natural query would find. BiGG stores water
     # as "H2O H2O", so name matching cannot reach it.
     model.add_metabolites(
-        [cobra.Metabolite("h2o_c", name="H2O H2O", formula="H2O", charge=0,
-                          compartment="c")]
+        [
+            cobra.Metabolite(
+                "h2o_c", name="H2O H2O", formula="H2O", charge=0, compartment="c"
+            )
+        ]
     )
     # WHEN resolving by formula.
     match = require_unique_metabolite(model, "H2O")
@@ -183,8 +191,15 @@ def test_resolve_refuses_a_vague_query_despite_one_exact_hit(
     # GIVEN a word that names one metabolite exactly and appears in many others.
     for index in range(WEAK_MATCH_CEILING + 2):
         model.add_metabolites(
-            [cobra.Metabolite(f"x{index}_c", name=f"Phosphate carrier {index}",
-                              formula="HO4P", charge=0, compartment="c")]
+            [
+                cobra.Metabolite(
+                    f"x{index}_c",
+                    name=f"Phosphate carrier {index}",
+                    formula="HO4P",
+                    charge=0,
+                    compartment="c",
+                )
+            ]
         )
     # WHEN demanding a unique match for the bare word.
     # THEN it refuses. One exact hit inside a crowd of 14 is not identification, and
@@ -202,8 +217,15 @@ def test_exact_identifier_outranks_a_crowd_of_substring_matches(
     # participant of a documented example -- could not be resolved at all.)
     for index in range(WEAK_MATCH_CEILING + 5):
         model.add_metabolites(
-            [cobra.Metabolite(f"pi_c_variant{index}", name=f"Carrier {index}",
-                              formula="HO4P", charge=0, compartment="c")]
+            [
+                cobra.Metabolite(
+                    f"pi_c_variant{index}",
+                    name=f"Carrier {index}",
+                    formula="HO4P",
+                    charge=0,
+                    compartment="c",
+                )
+            ]
         )
     # WHEN demanding a unique match for the exact identifier.
     # THEN it resolves: an identifier is unique within a model by construction, so
@@ -219,8 +241,15 @@ def test_shared_formula_across_compartments_stays_ambiguous(
     # h2o_c, h2o_e and h2o_p all match the formula exactly.)
     for compartment in ("c", "e", "p"):
         model.add_metabolites(
-            [cobra.Metabolite(f"h2o_{compartment}", name="H2O H2O", formula="H2O",
-                              charge=0, compartment=compartment)]
+            [
+                cobra.Metabolite(
+                    f"h2o_{compartment}",
+                    name="H2O H2O",
+                    formula="H2O",
+                    charge=0,
+                    compartment=compartment,
+                )
+            ]
         )
     # WHEN resolving by formula without naming a compartment.
     # THEN it refuses; narrowing by compartment is the caller's decision.
@@ -236,12 +265,16 @@ def test_case_matters_for_formula_and_identifier_matching(
     # monoxide, Co is cobalt. (Regression: query, id, name and formula were all
     # lowercased before matching, so `CO` was reported as an *exact formula* match
     # for cobalt -- a chemistry error dressed up as a search result.)
-    model.add_metabolites([
-        cobra.Metabolite("co_c", name="Carbon monoxide", formula="CO", charge=0,
-                         compartment="c"),
-        cobra.Metabolite("cobalt2_c", name="Cobalt", formula="Co", charge=2,
-                         compartment="c"),
-    ])
+    model.add_metabolites(
+        [
+            cobra.Metabolite(
+                "co_c", name="Carbon monoxide", formula="CO", charge=0, compartment="c"
+            ),
+            cobra.Metabolite(
+                "cobalt2_c", name="Cobalt", formula="Co", charge=2, compartment="c"
+            ),
+        ]
+    )
     # WHEN resolving each formula exactly.
     carbon = require_unique_metabolite(model, "CO")
     cobalt = require_unique_metabolite(model, "Co")
@@ -253,8 +286,15 @@ def test_case_matters_for_formula_and_identifier_matching(
 def test_identifier_case_is_not_folded(model: cobra.Model) -> None:
     # GIVEN a metabolite whose identifier carries meaningful capitals.
     model.add_metabolites(
-        [cobra.Metabolite("ACP_c", name="Acyl carrier protein", formula="C11H21N2O7PRS",
-                          charge=0, compartment="c")]
+        [
+            cobra.Metabolite(
+                "ACP_c",
+                name="Acyl carrier protein",
+                formula="C11H21N2O7PRS",
+                charge=0,
+                compartment="c",
+            )
+        ]
     )
     # WHEN querying with the wrong case.
     candidates = resolve_metabolite(model, "acp_c")
@@ -266,8 +306,15 @@ def test_identifier_case_is_not_folded(model: cobra.Model) -> None:
 def test_names_remain_case_insensitive(model: cobra.Model) -> None:
     # GIVEN a metabolite with a natural-language name.
     model.add_metabolites(
-        [cobra.Metabolite("zzz_c", name="Peculiar Compound", formula="C9H9",
-                          charge=0, compartment="c")]
+        [
+            cobra.Metabolite(
+                "zzz_c",
+                name="Peculiar Compound",
+                formula="C9H9",
+                charge=0,
+                compartment="c",
+            )
+        ]
     )
     # WHEN querying it in a different case.
     # THEN it still matches: prose carries no case convention, unlike formulae.
@@ -283,6 +330,7 @@ def test_publication_refuses_a_destination_created_after_the_guard(
     protected = tmp_path / "base.xml"
     protected.write_text("baseline", encoding="utf-8")
     destination = tmp_path / "result.xml"
+
     # WHEN publishing over the file the other writer left.
     # THEN it refuses, and the other writer's bytes survive untouched.
     def race() -> None:
@@ -331,6 +379,7 @@ def test_failed_run_leaves_no_staging_file(tmp_path: Path) -> None:
     protected = tmp_path / "base.xml"
     protected.write_text("baseline", encoding="utf-8")
     destination = tmp_path / "result.xml"
+
     # WHEN the body fails.
     def failing_run() -> None:
         with staged_write(destination, protected=protected) as staged:

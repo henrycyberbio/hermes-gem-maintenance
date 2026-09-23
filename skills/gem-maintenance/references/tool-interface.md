@@ -338,12 +338,23 @@ result.
 
 ```python
 from hermes_gem_maintenance import (
-    ReactionRequest, DeleteReactionRequest, add_reaction, delete_reaction,
-    parse_changeset, apply_changeset, check_candidate,
-    ConsistencyReview, review_consistency,
-    build_candidate, publish_deliverable,
-    load_model, file_digest, verify_digest, verify_source,
-    resolve_metabolite, require_unique_metabolite,
+    ReactionRequest,
+    DeleteReactionRequest,
+    add_reaction,
+    delete_reaction,
+    parse_changeset,
+    apply_changeset,
+    check_candidate,
+    ConsistencyReview,
+    review_consistency,
+    build_candidate,
+    publish_deliverable,
+    load_model,
+    file_digest,
+    verify_digest,
+    verify_source,
+    resolve_metabolite,
+    require_unique_metabolite,
 )
 ```
 

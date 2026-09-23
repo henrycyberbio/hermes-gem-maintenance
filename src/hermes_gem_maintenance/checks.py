@@ -285,9 +285,7 @@ def _check_delete(
             detail=f"{request.reaction_id} was already absent before the change",
         )
         return result
-    result.record(
-        "reaction present in baseline", ok=True, detail=request.reaction_id
-    )
+    result.record("reaction present in baseline", ok=True, detail=request.reaction_id)
 
     if request.reaction_id in candidate.reactions:
         result.record(
@@ -296,9 +294,7 @@ def _check_delete(
             detail=f"{request.reaction_id} still present",
         )
         return result
-    result.record(
-        "reaction absent from candidate", ok=True, detail=request.reaction_id
-    )
+    result.record("reaction absent from candidate", ok=True, detail=request.reaction_id)
 
     feasibility = check_feasibility(candidate)
     result.record(

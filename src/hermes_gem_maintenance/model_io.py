@@ -96,9 +96,7 @@ def load_model(path: Path) -> cobra.Model:
         return read_sbml_model(str(path))
     except Exception as exc:
         msg = f"{path.name} could not be read as an SBML model"
-        raise ModelIntegrityError(
-            msg, path=path.name, reason=str(exc)[:200]
-        ) from exc
+        raise ModelIntegrityError(msg, path=path.name, reason=str(exc)[:200]) from exc
 
 
 def save_candidate(model: cobra.Model, destination: Path, *, protected: Path) -> Path:

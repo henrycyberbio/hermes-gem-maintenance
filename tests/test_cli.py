@@ -36,10 +36,9 @@ from hermes_gem_maintenance.publish import build_candidate, publish_deliverable
 
 def _changeset_file(path: Path, operation: dict[str, object]) -> Path:
     """Write one operation wrapped in the envelope every changeset file carries."""
-    path.write_text(
-        json.dumps({"operations": [operation]}), encoding="utf-8"
-    )
+    path.write_text(json.dumps({"operations": [operation]}), encoding="utf-8")
     return path
+
 
 # ==== fixtures ====
 
@@ -471,9 +470,10 @@ def test_check_records_semantic_diff_and_local_checks_without_changing_stdout(
         (record_directory / "semantic_diff.json").read_text(encoding="utf-8")
     )
     assert semantic_diff["reactions"]["added"] == ["NEWRXN"]
-    assert json.loads(
-        (record_directory / "local_checks.json").read_text(encoding="utf-8")
-    ) == recorded
+    assert (
+        json.loads((record_directory / "local_checks.json").read_text(encoding="utf-8"))
+        == recorded
+    )
 
 
 def test_check_records_a_failed_local_verdict(
@@ -501,9 +501,10 @@ def test_check_records_a_failed_local_verdict(
     # THEN both completed check artifacts retain the failed verdict and its diff.
     assert payload["status"] == "failed"
     assert payload["failed"]
-    assert json.loads(
-        (record_directory / "local_checks.json").read_text(encoding="utf-8")
-    ) == payload
+    assert (
+        json.loads((record_directory / "local_checks.json").read_text(encoding="utf-8"))
+        == payload
+    )
     assert json.loads(
         (record_directory / "semantic_diff.json").read_text(encoding="utf-8")
     )["reactions"]["added"] == ["NEWRXN"]
@@ -934,9 +935,7 @@ def test_python_api_publishes_with_the_same_guarantees_as_the_cli(
         json.dumps({"artifact": {"sha256": file_digest(baseline)}}), encoding="utf-8"
     )
     # WHEN building and publishing through the library API.
-    built = build_candidate(
-        baseline, request, tmp_path / "cand.xml", manifest=manifest
-    )
+    built = build_candidate(baseline, request, tmp_path / "cand.xml", manifest=manifest)
     published = publish_deliverable(
         baseline,
         tmp_path / "cand.xml",
@@ -1121,12 +1120,16 @@ def test_export_retains_memote_snapshots_when_regression_fails_without_rerunning
         )
     # THEN one review supplies both durable snapshots and the failure summary.
     assert calls == 1
-    assert json.loads(
-        (record_directory / "memote_before.json").read_text(encoding="utf-8")
-    ) == before.as_dict()
-    assert json.loads(
-        (record_directory / "memote_after.json").read_text(encoding="utf-8")
-    ) == after.as_dict()
+    assert (
+        json.loads(
+            (record_directory / "memote_before.json").read_text(encoding="utf-8")
+        )
+        == before.as_dict()
+    )
+    assert (
+        json.loads((record_directory / "memote_after.json").read_text(encoding="utf-8"))
+        == after.as_dict()
+    )
     summary = json.loads(
         (record_directory / "validation_summary.json").read_text(encoding="utf-8")
     )
@@ -1285,16 +1288,16 @@ def test_export_refuses_to_deliver_a_candidate_with_a_consistency_regression(
             output=str(delivered),
         )
     assert not delivered.exists()
-    assert caught.value.as_dict()["category"] == "validation_failed"
-    assert "FAKE_BLOCKED" in caught.value.as_dict()["consistency_regression"][
-        "new_blocked_reactions"
-    ]
-    assert caught.value.as_dict()["status"] == "failed"
-    assert caught.value.as_dict()["scope"] == "export"
-    assert any(
-        item.startswith("consistency regression")
-        for item in caught.value.as_dict()["failed"]
-    )
+    payload = caught.value.as_dict()
+    assert payload["category"] == "validation_failed"
+    regression = payload["consistency_regression"]
+    assert isinstance(regression, dict)
+    assert "FAKE_BLOCKED" in regression["new_blocked_reactions"]
+    assert payload["status"] == "failed"
+    assert payload["scope"] == "export"
+    failed = payload["failed"]
+    assert isinstance(failed, list)
+    assert any(item.startswith("consistency regression") for item in failed)
     assert not list(tmp_path.glob(".*.partial"))
 
 
@@ -1334,9 +1337,7 @@ def test_export_drift_failure_is_independent_of_artifact_recording(
     assert errors["plain"]["status"] == "failed"
     assert errors["plain"]["scope"] == "structural"
     summary = json.loads(
-        (tmp_path / "record" / "validation_summary.json").read_text(
-            encoding="utf-8"
-        )
+        (tmp_path / "record" / "validation_summary.json").read_text(encoding="utf-8")
     )
     for field in ("status", "scope", "failed"):
         assert summary[field] == errors["recorded"][field]

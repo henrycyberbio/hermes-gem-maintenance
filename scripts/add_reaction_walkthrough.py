@@ -46,9 +46,7 @@ class Walkthrough:
         )
 
         destination = (
-            Path(output_dir)
-            if output_dir
-            else REPO_ROOT / "runs" / request.reaction_id
+            Path(output_dir) if output_dir else REPO_ROOT / "runs" / request.reaction_id
         )
         if destination.exists() and any(destination.iterdir()):
             msg = "output directory is not empty"

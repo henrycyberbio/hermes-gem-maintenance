@@ -150,9 +150,7 @@ class ReactionRequest:
             upper_bound=upper,
             name=_optional_text(spec.get("name"), "name", reaction_id),
             subsystem=_optional_text(spec.get("subsystem"), "subsystem", reaction_id),
-            gene_reaction_rule=_gene_rule(
-                spec.get("gene_reaction_rule"), reaction_id
-            ),
+            gene_reaction_rule=_gene_rule(spec.get("gene_reaction_rule"), reaction_id),
         )
 
 
